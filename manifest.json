@@ -1,0 +1,49 @@
+{
+  "manifest_version": 3,
+  "name": "密码查看助手",
+  "version": "1.0.0",
+  "description": "方便查看网页密码框中的密码",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "commands": {
+    "toggle-password": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+P",
+        "mac": "Command+Shift+P"
+      },
+      "description": "快速切换密码显示/隐藏"
+    }
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png",
+      "256": "icons/icon256.png",
+      "512": "icons/icon512.png",
+      "1024": "icons/icon1024.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png",
+    "256": "icons/icon256.png",
+    "512": "icons/icon512.png",
+    "1024": "icons/icon1024.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content/content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+}
