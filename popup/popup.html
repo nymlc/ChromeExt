@@ -1,3 +1,11 @@
+<!--
+ * @Author: 林晨 linchen@yixin.im
+ * @Date: 2026-01-26 17:14:31
+ * @LastEditors: 林晨 linchen@yixin.im
+ * @LastEditTime: 2026-03-18 13:51:09
+ * @FilePath: /ChromeExt/popup/popup.html
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+-->
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -10,20 +18,71 @@
   <div class="container">
     <h1>密码查看助手</h1>
     
-    <div class="feature-section">
-      <h2>密码显示</h2>
-      <button id="togglePassword" class="btn btn-primary">
-        <span id="toggleText">显示所有密码</span>
-      </button>
-      <p class="hint">点击按钮切换当前页面所有密码框的显示状态</p>
+    <!-- 全局设置区域 -->
+    <div class="global-section">
+      <h2>全局设置</h2>
+      <div class="setting-item">
+        <span>扩展状态</span>
+        <button id="globalToggle" class="btn btn-small btn-primary">
+          <span id="globalToggleText">已启用</span>
+        </button>
+      </div>
+      <p class="hint">关闭后所有功能将在本网站禁用</p>
     </div>
 
-    <div class="feature-section">
-      <h2>更多功能</h2>
-      <p class="coming-soon">敬请期待...</p>
+    <!-- 密码显示功能区域 -->
+    <div class="feature-module">
+      <div class="module-header">
+        <h2>🔐 密码显示</h2>
+        <label class="switch">
+          <input type="checkbox" id="passwordModuleEnabled" checked>
+          <span class="slider"></span>
+        </label>
+      </div>
+      
+      <div class="module-content" id="passwordModuleContent">
+        <div class="setting-item">
+          <button id="togglePassword" class="btn btn-primary btn-block">
+            <span id="toggleText">显示所有密码</span>
+          </button>
+        </div>
+        
+        <p class="hint">双击密码框或点击眼睛图标可单独切换</p>
+      </div>
+    </div>
+
+    <!-- 未来功能模块示例 -->
+    <!-- 
+    <div class="feature-module">
+      <div class="module-header">
+        <h2>📝 自动填充</h2>
+        <label class="switch">
+          <input type="checkbox" id="autoFillModuleEnabled" checked>
+          <span class="slider"></span>
+        </label>
+      </div>
+      
+      <div class="module-content" id="autoFillModuleContent">
+        <div class="setting-item">
+          <span>本网站启用</span>
+          <label class="switch">
+            <input type="checkbox" id="autoFillSiteEnabled" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+        <p class="hint">自动填充保存的表单数据</p>
+      </div>
+    </div>
+    -->
+
+    <div class="footer">
+      <p class="version">v1.0.0</p>
     </div>
   </div>
   
+  <script src="utils/Toast.js"></script>
+  <script src="modules/BaseModule.js"></script>
+  <script src="modules/PasswordToggle.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

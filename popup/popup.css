@@ -5,24 +5,31 @@
 }
 
 body {
-  width: 320px;
+  width: 360px;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: #333;
 }
 
 .container {
-  padding: 20px;
+  padding: 16px;
 }
 
 h1 {
   font-size: 20px;
   color: white;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
   text-align: center;
 }
 
-.feature-section {
+h2 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+}
+
+/* 全局设置区域 */
+.global-section {
   background: white;
   border-radius: 12px;
   padding: 16px;
@@ -30,21 +37,82 @@ h1 {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-.feature-section h2 {
-  font-size: 16px;
-  color: #667eea;
+.global-section h2 {
+  color: #333;
   margin-bottom: 12px;
 }
 
+/* 功能模块区域 */
+.feature-module {
+  background: white;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border-left: 4px solid #667eea;
+}
+
+.module-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.module-header h2 {
+  color: #667eea;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.module-content {
+  display: block;
+}
+
+.module-content.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* 设置项 */
+.setting-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.setting-item:last-child {
+  margin-bottom: 0;
+}
+
+.setting-item span {
+  font-size: 14px;
+  color: #fff;
+}
+
+/* 按钮样式 */
 .btn {
-  width: 100%;
-  padding: 12px;
+  padding: 10px 16px;
   border: none;
   border-radius: 8px;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.3s ease;
+}
+
+.btn-block {
+  width: 100%;
+  padding: 12px;
+}
+
+.btn-small {
+  padding: 6px 12px;
+  font-size: 12px;
 }
 
 .btn-primary {
@@ -62,16 +130,97 @@ h1 {
   transform: translateY(0);
 }
 
+.btn-secondary {
+  background: #e0e0e0;
+  color: #333;
+}
+
+.btn-secondary:hover {
+  background: #d0d0d0;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.btn-secondary:active {
+  transform: translateY(0);
+}
+
+.btn-danger {
+  background: #f44336;
+  color: white;
+}
+
+.btn-danger:hover {
+  background: #d32f2f;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(244, 67, 54, 0.4);
+}
+
+.btn-danger:active {
+  transform: translateY(0);
+}
+
+/* 开关按钮 */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #ccc;
+  transition: 0.3s;
+  border-radius: 24px;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: 0.3s;
+  border-radius: 50%;
+}
+
+input:checked + .slider {
+  background-color: #667eea;
+}
+
+input:checked + .slider:before {
+  transform: translateX(20px);
+}
+
+/* 提示文字 */
 .hint {
   margin-top: 8px;
   font-size: 12px;
-  color: #666;
+  color: #999;
   text-align: center;
 }
 
-.coming-soon {
-  font-size: 13px;
-  color: #999;
+/* 页脚 */
+.footer {
   text-align: center;
-  font-style: italic;
+  margin-top: 8px;
+}
+
+.version {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.7);
 }

@@ -39,7 +39,11 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content/content.js"],
+      "js": [
+        "content/modules/BaseModule.js",
+        "content/modules/PasswordHelper.js",
+        "content/content.js"
+      ],
       "run_at": "document_idle"
     }
   ],
