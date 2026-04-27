@@ -12,32 +12,28 @@ class ContentManager {
   constructor() {
     this.modules = {
       passwordHelper: null,
-      // 未来可以添加更多模块
-      // autoFill: null,
-      // formValidator: null,
+      credentialFiller: null,
     };
     this.init();
     this.setupStorageListener();
   }
-  
+
   async init() {
     // 检查全局是否禁用
     const hostname = window.location.hostname;
     const globalResult = await chrome.storage.local.get(['globalDisabledSites']);
     const globalDisabledSites = globalResult.globalDisabledSites || [];
-    
+
     if (globalDisabledSites.includes(hostname)) {
       console.log('扩展已在此网站全局禁用');
       return;
     }
-    
+
     // 初始化各个功能模块（模块内部会检查是否被禁用）
     await this.initPasswordModule();
-    
-    // 未来可以在这里初始化其他模块
-    // await this.initAutoFillModule();
+    await this.initCredentialModule();
   }
-  
+
   async initPasswordModule() {
     if (this.modules.passwordHelper) {
       this.modules.passwordHelper.destroy();
@@ -45,18 +41,26 @@ class ContentManager {
     this.modules.passwordHelper = new PasswordHelper();
     await this.modules.passwordHelper.init();
   }
-  
+
+  async initCredentialModule() {
+    if (this.modules.credentialFiller) {
+      this.modules.credentialFiller.destroy();
+    }
+    this.modules.credentialFiller = new CredentialFiller();
+    await this.modules.credentialFiller.init();
+  }
+
   setupStorageListener() {
     // 监听存储变化，动态启用/禁用模块
     chrome.storage.onChanged.addListener(async (changes) => {
       const hostname = window.location.hostname;
-      
+
       // 监听全局启用状态变化
       if (changes.globalDisabledSites) {
         const disabledSites = changes.globalDisabledSites.newValue || [];
         const wasDisabled = changes.globalDisabledSites.oldValue?.includes(hostname);
         const isDisabled = disabledSites.includes(hostname);
-        
+
         if (wasDisabled && !isDisabled) {
           // 从禁用变为启用，重新初始化所有模块
           console.log('全局启用，重新初始化模块');
@@ -67,7 +71,7 @@ class ContentManager {
           this.destroy();
         }
       }
-      
+
       // 监听密码模块启用状态变化
       if (changes.passwordModuleEnabled) {
         const enabled = changes.passwordModuleEnabled.newValue;
@@ -81,13 +85,13 @@ class ContentManager {
           }
         }
       }
-      
+
       // 监听密码模块网站禁用列表变化
       if (changes.disabledPasswordSites) {
         const disabledSites = changes.disabledPasswordSites.newValue || [];
         const wasDisabled = changes.disabledPasswordSites.oldValue?.includes(hostname);
         const isDisabled = disabledSites.includes(hostname);
-        
+
         if (wasDisabled && !isDisabled) {
           // 从禁用变为启用
           console.log('密码模块在本网站启用，重新初始化');
@@ -100,9 +104,28 @@ class ContentManager {
           }
         }
       }
+
+      // 监听凭证模块启用状态变化
+      if (changes.credentialModuleEnabled) {
+        const enabled = changes.credentialModuleEnabled.newValue;
+        if (enabled) {
+          await this.initCredentialModule();
+        } else {
+          if (this.modules.credentialFiller) {
+            this.modules.credentialFiller.destroy();
+          }
+        }
+      }
+
+      // 监听凭证数据变化，通知 content 重新匹配项目
+      if (changes.credentialProjects) {
+        if (this.modules.credentialFiller) {
+          await this.modules.credentialFiller.matchProject();
+        }
+      }
     });
   }
-  
+
   destroy() {
     // 清理所有模块
     Object.values(this.modules).forEach(module => {

@@ -38,10 +38,13 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
+      "matches": [
+        "<all_urls>"
+      ],
       "js": [
         "content/modules/BaseModule.js",
         "content/modules/PasswordHelper.js",
+        "content/modules/CredentialFiller.js",
         "content/content.js"
       ],
       "run_at": "document_idle"
