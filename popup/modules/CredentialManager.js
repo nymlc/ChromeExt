@@ -536,7 +536,7 @@ class CredentialManager extends BaseModule {
         // 用户名
         const usernameInput = this.createInput('用户名', cred.username, '请输入用户名');
         // 密码
-        const passwordInput = this.createInput('密码', cred.password, '请输入密码', 'password');
+        const passwordInput = this.createInput('密码', cred.password, '请输入密码', 'text');
 
         form.appendChild(labelInput.wrapper);
         form.appendChild(usernameInput.wrapper);
