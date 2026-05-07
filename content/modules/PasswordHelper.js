@@ -11,6 +11,9 @@ class PasswordHelper extends BaseContentModule {
     this.isVisible = false;
     this.observer = null;
     this.processedInputs = new WeakSet();
+    this.managedFields = []; // [{ input, icon }]
+    this.iconContainer = null;
+    this.updatePositions = this.updatePositions.bind(this);
   }
   
   async init() {
@@ -47,7 +50,24 @@ class PasswordHelper extends BaseContentModule {
     });
   }
   
+  ensureIconContainer() {
+    if (!this.iconContainer) {
+      this.iconContainer = document.createElement('div');
+      this.iconContainer.id = 'geek-toolbox-password-icons';
+      this.iconContainer.style.cssText = 'position: absolute; top: 0; left: 0; width: 100%; height: 0; pointer-events: none; z-index: 2147483647;';
+      
+      const parent = document.body || document.documentElement;
+      if (parent) parent.appendChild(this.iconContainer);
+      
+      window.addEventListener('scroll', this.updatePositions, true);
+      window.addEventListener('resize', this.updatePositions);
+      this.positionInterval = setInterval(this.updatePositions, 500);
+    }
+  }
+
   setupPasswordFields() {
+    this.ensureIconContainer();
+
     // 为所有密码框添加功能
     const passwordInputs = document.querySelectorAll('input[type="password"]');
     passwordInputs.forEach(input => this.enhancePasswordInput(input));
@@ -74,76 +94,84 @@ class PasswordHelper extends BaseContentModule {
   }
   
   addEyeIcon(input) {
-    // 检查是否已经有图标
-    if (input.parentElement?.querySelector('.password-toggle-icon')) return;
-    
-    // 创建包装容器
-    const wrapper = document.createElement('div');
-    const inputStyle = window.getComputedStyle(input);
-    // 检查是否设置了 width: 100% (检查 inline style 或者实际宽度是否等于父元素宽度)
-    const styleAttr = input.getAttribute('style') || '';
-    const hasInlineFullWidth = input.style.width === '100%' || 
-                                styleAttr.includes('width: 100%') ||
-                                styleAttr.includes('width:100%');
-    // 检查计算后的宽度是否接近父元素宽度
-    const parent = input.parentElement;
-    const parentWidth = parent ? parent.offsetWidth : 0;
-    const inputWidth = input.offsetWidth;
-    const isComputedFullWidth = parentWidth > 0 && Math.abs(inputWidth - parentWidth) < 5; // 允许5px误差
-    console.error(parentWidth, inputWidth)
-    const isFullWidth = hasInlineFullWidth || isComputedFullWidth;
-    wrapper.style.cssText = `position: relative; display: ${isFullWidth ? 'block' : 'inline-block'}; width: ${isFullWidth ? '100%' : 'auto'};`;
+    this.ensureIconContainer();
+    if (!this.iconContainer) return;
     
     // 创建眼睛图标
-    const icon = document.createElement('span');
+    const icon = document.createElement('div');
     icon.className = 'password-toggle-icon';
-    icon.innerHTML = '👁️';
     icon.style.cssText = `
       position: absolute;
-      right: 10px;
-      top: 50%;
       transform: translateY(-50%);
       cursor: pointer;
       user-select: none;
-      font-size: 18px;
-      z-index: 10000;
-      opacity: 0.6;
-      transition: opacity 0.2s;
+      color: #888;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      border-radius: 4px;
+      pointer-events: auto;
+      transition: background 0.2s, color 0.2s;
     `;
     
     icon.addEventListener('mouseenter', () => {
-      icon.style.opacity = '1';
+      icon.style.background = '#f0f0f0';
+      icon.style.color = '#333';
     });
-    
     icon.addEventListener('mouseleave', () => {
-      icon.style.opacity = '0.6';
+      icon.style.background = 'transparent';
+      icon.style.color = '#888';
     });
     
     icon.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
       this.toggleSinglePassword(input);
-      this.updateEyeIcon(input, icon);
     });
     
-    // 如果input已经在相对定位的容器中，直接添加图标
-    if (inputStyle.position === 'absolute' || parent.style.position === 'relative' || parent.style.position === 'absolute') {
-      parent.style.position = parent.style.position || 'relative';
-      parent.appendChild(icon);
-    } else {
-      // 否则创建包装容器
-      parent.insertBefore(wrapper, input);
-      wrapper.appendChild(input);
-      wrapper.appendChild(icon);
-    }
+    this.iconContainer.appendChild(icon);
+    this.managedFields.push({ input, icon });
     
     this.updateEyeIcon(input, icon);
+    this.updatePositions();
   }
   
   updateEyeIcon(input, icon) {
     const isVisible = input.type === 'text' && input.getAttribute('data-password-toggle') === 'true';
-    icon.innerHTML = isVisible ? '🙈' : '👁️';
-    icon.title = isVisible ? '隐藏密码' : '显示密码';
+    var eyeOffSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 15px; height: 15px;">'
+      + '<path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/>'
+      + '<path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/>'
+      + '<path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/>'
+      + '<line x1="2" y1="2" x2="22" y2="22"/>'
+      + '</svg>';
+    var eyeOnSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 15px; height: 15px;">'
+      + '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>'
+      + '<circle cx="12" cy="12" r="3"/>'
+      + '</svg>';
+    if (isVisible) {
+        icon.innerHTML = eyeOffSvg;
+        icon.title = '隐藏密码';
+    } else {
+        icon.innerHTML = eyeOnSvg;
+        icon.title = '显示密码';
+    }
+  }
+
+  updatePositions() {
+    this.managedFields.forEach(({ input, icon }) => {
+        const rect = input.getBoundingClientRect();
+        // 检查元素是否可见且存在于 DOM (使用 isConnected 兼容 Shadow DOM)
+        if (!input.isConnected || rect.width === 0 || rect.height === 0 || window.getComputedStyle(input).visibility === 'hidden') {
+            icon.style.display = 'none';
+            return;
+        }
+        icon.style.display = 'flex';
+        // 定位到输入框右侧内部（距离右边缘 8px，如果输入框有 padding 可以避免遮挡，统一往左偏移 28px）
+        icon.style.left = (rect.right + window.scrollX - 28) + 'px';
+        icon.style.top = (rect.top + window.scrollY + rect.height / 2) + 'px';
+    });
   }
   
   toggleSinglePassword(input) {
@@ -156,9 +184,9 @@ class PasswordHelper extends BaseContentModule {
     }
     
     // 更新对应的眼睛图标
-    const icon = input.parentElement?.querySelector('.password-toggle-icon');
-    if (icon) {
-      this.updateEyeIcon(input, icon);
+    const field = this.managedFields.find(f => f.input === input);
+    if (field) {
+      this.updateEyeIcon(field.input, field.icon);
     }
   }
   
@@ -179,9 +207,9 @@ class PasswordHelper extends BaseContentModule {
       }
       
       // 更新眼睛图标
-      const icon = input.parentElement?.querySelector('.password-toggle-icon');
-      if (icon) {
-        this.updateEyeIcon(input, icon);
+      const field = this.managedFields.find(f => f.input === input);
+      if (field) {
+        this.updateEyeIcon(field.input, field.icon);
       }
     });
   }
@@ -190,40 +218,58 @@ class PasswordHelper extends BaseContentModule {
     // 监听DOM变化，自动处理动态添加的密码框
     this.observer = new MutationObserver((mutations) => {
       mutations.forEach((mutation) => {
-        mutation.addedNodes.forEach((node) => {
-          if (node.nodeType === 1) {
-            // 检查新添加的节点是否是密码框
-            if (node.tagName === 'INPUT' && node.type === 'password') {
-              this.enhancePasswordInput(node);
-              if (this.isVisible) {
-                node.type = 'text';
-                node.setAttribute('data-password-toggle', 'true');
-              }
+        // 1. 监听 type 属性的动态变化 (比如 Vue 动态切换 text -> password)
+        if (mutation.type === 'attributes' && mutation.attributeName === 'type') {
+            if (mutation.target.tagName === 'INPUT' && mutation.target.type === 'password') {
+                this.enhancePasswordInput(mutation.target);
             }
-            // 检查子节点中的密码框
-            const passwordInputs = node.querySelectorAll?.('input[type="password"]');
-            passwordInputs?.forEach(input => {
-              this.enhancePasswordInput(input);
-              if (this.isVisible) {
-                input.type = 'text';
-                input.setAttribute('data-password-toggle', 'true');
+        }
+        
+        // 2. 监听新增节点
+        if (mutation.type === 'childList') {
+            mutation.addedNodes.forEach((node) => {
+              if (node.nodeType === 1) {
+                // 检查新添加的节点是否是密码框
+                if (node.tagName === 'INPUT' && node.type === 'password') {
+                  this.enhancePasswordInput(node);
+                  if (this.isVisible) {
+                    node.type = 'text';
+                    node.setAttribute('data-password-toggle', 'true');
+                  }
+                }
+                // 检查子节点中的密码框
+                const passwordInputs = node.querySelectorAll?.('input[type="password"]');
+                passwordInputs?.forEach(input => {
+                  this.enhancePasswordInput(input);
+                  if (this.isVisible) {
+                    input.type = 'text';
+                    input.setAttribute('data-password-toggle', 'true');
+                  }
+                });
               }
             });
-          }
-        });
+        }
       });
     });
     
-    this.observer.observe(document.body, {
+    this.observer.observe(document.body || document.documentElement, {
       childList: true,
-      subtree: true
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['type']
     });
   }
   
   destroy() {
-    // 移除所有眼睛图标
-    const icons = document.querySelectorAll('.password-toggle-icon');
-    icons.forEach(icon => icon.remove());
+    // 移除容器
+    if (this.iconContainer) {
+      this.iconContainer.remove();
+      this.iconContainer = null;
+    }
+    
+    window.removeEventListener('scroll', this.updatePositions, true);
+    window.removeEventListener('resize', this.updatePositions);
+    if (this.positionInterval) clearInterval(this.positionInterval);
     
     // 恢复所有密码框
     const passwordInputs = document.querySelectorAll('input[type="text"][data-password-toggle]');
@@ -238,8 +284,9 @@ class PasswordHelper extends BaseContentModule {
       this.observer = null;
     }
     
-    // 清空已处理的输入框集合
+    // 清空状态
     this.processedInputs = new WeakSet();
+    this.managedFields = [];
     
     console.log('密码功能已清理');
   }

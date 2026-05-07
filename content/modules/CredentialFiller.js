@@ -92,7 +92,13 @@ class CredentialFiller extends BaseContentModule {
      */
     isLoginInput(input) {
         const type = this.detectFieldType(input);
-        return type === 'username' || type === 'password';
+        if (type === 'username' || type === 'password') return true;
+
+        // 兜底逻辑：如果它是被推断出的用户名框（离密码框最近的前置文本框），也认为它是登录框
+        const fallbackUser = this.findUsernameInput();
+        if (fallbackUser === input) return true;
+
+        return false;
     }
 
     /**
@@ -102,21 +108,22 @@ class CredentialFiller extends BaseContentModule {
         if (this.processedInputs.has(input)) return;
         this.processedInputs.add(input);
 
-        // 只在用户名和密码输入框上绑定
-        if (!this.isLoginInput(input)) return;
+        const showPopup = () => {
+            // 在事件触发时实时检测是否为登录输入框，避免因 DOM 动态加载顺序导致推断失败
+            if (!this.isLoginInput(input)) return;
 
-        input.addEventListener('focus', () => {
-            // 聚焦时实时检查：有匹配项目且有凭证才弹出
-            if (this.currentProject && this.currentProject.credentials.length > 0) {
-                this.showCredentialPopup(input);
-            }
-        });
+            // 如果当前已经在此输入框显示了弹窗，则不再重复创建
+            if (this.popupEl && this.activeInput === input) return;
+            
+            this.showCredentialPopup(input);
+        };
+
+        input.addEventListener('focus', showPopup);
+        input.addEventListener('click', showPopup);
 
         // 如果输入框当前已经处于聚焦状态（比如动态插入后自动聚焦），立即弹出
         if (document.activeElement === input) {
-            if (this.currentProject && this.currentProject.credentials.length > 0) {
-                this.showCredentialPopup(input);
-            }
+            showPopup();
         }
     }
 
@@ -155,7 +162,7 @@ class CredentialFiller extends BaseContentModule {
         this.activeInput = input;
         this._isSelecting = false;
 
-        const credentials = this.currentProject.credentials;
+        const credentials = this.currentProject ? this.currentProject.credentials : [];
         // active 在前，disabled 在后
         const sorted = [...credentials].sort((a, b) => {
             if (a.status === 'active' && b.status !== 'active') return -1;
@@ -167,19 +174,27 @@ class CredentialFiller extends BaseContentModule {
         const popup = document.createElement('div');
         popup.className = 'credential-filler-popup';
         popup.style.cssText = `
-      position: fixed;
-      z-index: 2147483647;
-      background: #fff;
-      border: 1px solid #e0e0e0;
-      border-radius: 8px;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.15);
-      max-height: 240px;
-      overflow-y: auto;
-      min-width: 260px;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
-      font-size: 13px;
-      -webkit-overflow-scrolling: touch;
-    `;
+            position: fixed;
+            z-index: 2147483647;
+            background: #fff;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+            max-height: 240px;
+            min-width: 260px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+            font-size: 13px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        `;
+
+        const listContainer = document.createElement('div');
+        listContainer.style.cssText = `
+            flex: 1;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+        `;
 
         sorted.forEach(cred => {
             const item = document.createElement('div');
@@ -237,8 +252,42 @@ class CredentialFiller extends BaseContentModule {
                 this.hideCredentialPopup();
             });
 
-            popup.appendChild(item);
+            listContainer.appendChild(item);
         });
+
+        popup.appendChild(listContainer);
+
+        // 添加采集按钮
+        const collectBtn = document.createElement('div');
+        collectBtn.style.cssText = `
+            padding: 10px 14px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #007aff;
+            font-weight: 600;
+            background: #fafafa;
+            border-top: 1px solid #e5e5ea;
+            flex-shrink: 0;
+            transition: background 0.15s;
+        `;
+        collectBtn.textContent = '+ 采集当前填写凭证';
+        
+        collectBtn.addEventListener('mouseenter', () => { collectBtn.style.background = '#eef0ff'; });
+        collectBtn.addEventListener('mouseleave', () => { collectBtn.style.background = '#fafafa'; });
+        
+        const handleCollect = async (e) => {
+            e.preventDefault();
+            this._isSelecting = true;
+            await this.collectCurrentCredential();
+            this.hideCredentialPopup();
+        };
+
+        collectBtn.addEventListener('mousedown', handleCollect);
+        collectBtn.addEventListener('touchstart', handleCollect, { passive: false });
+
+        popup.appendChild(collectBtn);
 
         document.body.appendChild(popup);
         this.popupEl = popup;
@@ -537,6 +586,125 @@ class CredentialFiller extends BaseContentModule {
             el = el.parentElement;
         }
         return path.join(' > ');
+    }
+
+    /**
+     * 简单的 Toast 提示（由于在 Content Script，需要自己实现 UI）
+     */
+    showToast(message) {
+        const toast = document.createElement('div');
+        toast.textContent = message;
+        toast.style.cssText = `
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            z-index: 2147483647;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s;
+            font-family: -apple-system, sans-serif;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        `;
+        document.body.appendChild(toast);
+        // trigger reflow
+        toast.offsetHeight;
+        toast.style.opacity = '1';
+        setTimeout(() => {
+            toast.style.opacity = '0';
+            setTimeout(() => toast.remove(), 300);
+        }, 2000);
+    }
+
+    /**
+     * 在页面内采集当前填写的凭证并直接保存
+     */
+    async collectCurrentCredential() {
+        const fields = this.scanInputs();
+        if (!fields || fields.length === 0) {
+            this.showToast('未检测到已填写的输入框');
+            return;
+        }
+        
+        const usernameField = fields.find(f => f.type === 'username');
+        const passwordField = fields.find(f => f.type === 'password');
+        const customFields = fields.filter(f => f.type === 'custom').map(f => ({
+            label: f.label,
+            value: f.value,
+            selector: f.selector
+        }));
+
+        if (!usernameField && !passwordField) {
+            this.showToast('未填写任何用户名或密码');
+            return;
+        }
+
+        const username = usernameField ? usernameField.value.trim() : '';
+        const password = passwordField ? passwordField.value.trim() : '';
+        if (!username || !password) {
+            this.showToast('用户名和密码必须都填写完整才能采集');
+            return;
+        }
+
+        const pageTitle = document.title;
+        const result = await chrome.storage.local.get(['credentialProjects']);
+        const projects = result.credentialProjects || [];
+        
+        let project = this.currentProject;
+        if (!project) {
+            // 尝试通过 title 匹配
+            project = projects.find(p => p.matchTitle && (pageTitle.toLowerCase().includes(p.matchTitle.toLowerCase()) || p.matchTitle.toLowerCase().includes(pageTitle.toLowerCase())));
+        }
+        
+        if (!project) {
+            project = {
+                id: Date.now().toString(36) + Math.random().toString(36).substr(2, 9),
+                name: pageTitle || '新项目',
+                matchTitle: pageTitle || '新项目',
+                credentials: [],
+                createdAt: Date.now(),
+                updatedAt: Date.now()
+            };
+            projects.push(project);
+        } else {
+            // 获取最新引用
+            const existingProj = projects.find(p => p.id === project.id);
+            if (existingProj) {
+                project = existingProj;
+            } else {
+                projects.push(project);
+            }
+        }
+
+        const existingIdx = project.credentials.findIndex(c => c.username === username);
+        let msg = '';
+        if (existingIdx >= 0) {
+            project.credentials[existingIdx].password = password;
+            project.credentials[existingIdx].customFields = customFields;
+            msg = '已覆盖更新该账号凭证！';
+        } else {
+            project.credentials.push({
+                id: Date.now().toString(36) + Math.random().toString(36).substr(2, 9),
+                label: username || '未命名',
+                username,
+                password,
+                customFields,
+                status: 'active',
+                disabledReason: ''
+            });
+            msg = '凭证采集成功！';
+        }
+        
+        project.updatedAt = Date.now();
+        await chrome.storage.local.set({ credentialProjects: projects });
+        
+        this.currentProject = project; // 更新当前项目引用
+        this.showToast(msg);
     }
 
     destroy() {

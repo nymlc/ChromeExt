@@ -392,27 +392,61 @@ class CredentialManager extends BaseModule {
             const actions = document.createElement('div');
             actions.style.cssText = 'display: flex; gap: 6px; align-items: center;';
 
-            const iconStyle = 'cursor: pointer; width: 18px; height: 18px; opacity: 0.6; transition: opacity 0.15s;';
-            const createIcon = (src, title) => {
-                const img = document.createElement('img');
-                img.src = src;
-                img.title = title;
-                img.style.cssText = iconStyle;
-                img.addEventListener('mouseenter', () => { img.style.opacity = '1'; });
-                img.addEventListener('mouseleave', () => { img.style.opacity = '0.6'; });
-                return img;
+            const createSVGIcon = (type, title) => {
+                const svgNS = "http://www.w3.org/2000/svg";
+                const svg = document.createElementNS(svgNS, "svg");
+                svg.setAttribute("viewBox", "0 0 24 24");
+                svg.setAttribute("fill", "none");
+                svg.setAttribute("stroke", "currentColor");
+                svg.setAttribute("stroke-width", "2");
+                svg.setAttribute("stroke-linecap", "round");
+                svg.setAttribute("stroke-linejoin", "round");
+                svg.style.cssText = 'width: 16px; height: 16px; opacity: 0.6; transition: all 0.15s;';
+                
+                let innerHTML = '';
+                if (type === 'fill') {
+                    innerHTML = '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/>';
+                } else if (type === 'disable') {
+                    innerHTML = '<path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" y1="2" x2="22" y2="22"/>';
+                } else if (type === 'enable') {
+                    innerHTML = '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>';
+                } else if (type === 'edit') {
+                    innerHTML = '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>';
+                } else if (type === 'delete') {
+                    innerHTML = '<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>';
+                }
+                svg.innerHTML = innerHTML;
+                
+                const wrapper = document.createElement('div');
+                wrapper.title = title;
+                wrapper.style.cssText = 'cursor: pointer; display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 6px; transition: background 0.15s;';
+                wrapper.appendChild(svg);
+                
+                wrapper.addEventListener('mouseenter', () => { 
+                    svg.style.opacity = '1'; 
+                    wrapper.style.background = type === 'delete' ? '#ffebee' : '#eef0ff';
+                    if(type === 'delete') svg.style.color = '#f44336';
+                    else svg.style.color = '#667eea';
+                });
+                wrapper.addEventListener('mouseleave', () => { 
+                    svg.style.opacity = '0.6'; 
+                    wrapper.style.background = 'transparent';
+                    svg.style.color = 'inherit';
+                });
+                
+                return wrapper;
             };
 
             // 填充按钮
-            const fillBtn = createIcon('icons/fill.svg', '填充到页面');
+            const fillBtn = createSVGIcon('fill', '填充到页面');
             fillBtn.addEventListener('click', () => this.fillCredential(cred));
 
             // 标记失效/恢复
-            const toggleBtn = createIcon(isDisabled ? 'icons/enable.svg' : 'icons/disable.svg', isDisabled ? '恢复正常' : '标记失效');
+            const toggleBtn = createSVGIcon(isDisabled ? 'enable' : 'disable', isDisabled ? '恢复正常' : '标记失效');
             toggleBtn.addEventListener('click', () => this.toggleCredentialStatus(project, cred));
 
             // 编辑
-            const editBtn = createIcon('icons/edit.svg', '编辑');
+            const editBtn = createSVGIcon('edit', '编辑');
             editBtn.addEventListener('click', () => {
                 this.editingCredential = cred;
                 this.currentView = 'editCred';
@@ -420,7 +454,7 @@ class CredentialManager extends BaseModule {
             });
 
             // 删除
-            const delBtn = createIcon('icons/delete.svg', '删除');
+            const delBtn = createSVGIcon('delete', '删除');
             delBtn.addEventListener('click', () => this.deleteCredential(project, cred.id));
 
             actions.appendChild(fillBtn);
