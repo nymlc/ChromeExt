@@ -26,7 +26,8 @@ html {
 
 body {
   width: 360px;
-  height: 500px;
+  min-height: 200px;
+  max-height: 500px;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, sans-serif;
   color: var(--text-main);
   overflow: hidden;
@@ -37,12 +38,19 @@ body {
 .app-wrapper {
   position: relative;
   width: 100%;
-  height: 100%;
-  display: flex;
+  min-height: 200px;
   overflow: hidden;
 }
 
-.view-home, .view-subpage {
+.view-home {
+  position: relative;
+  width: 100%;
+  transition: transform 0.4s cubic-bezier(0.36, 0.66, 0.04, 1);
+  background: var(--system-bg);
+  transform: translateX(0);
+}
+
+.view-subpage {
   position: absolute;
   top: 0;
   left: 0;
@@ -50,13 +58,6 @@ body {
   height: 100%;
   transition: transform 0.4s cubic-bezier(0.36, 0.66, 0.04, 1);
   background: var(--system-bg);
-}
-
-.view-home {
-  transform: translateX(0);
-}
-
-.view-subpage {
   transform: translateX(100%);
   display: flex;
   flex-direction: column;
@@ -74,7 +75,6 @@ body {
 
 .container {
   padding: 16px;
-  height: 100%;
   display: flex;
   flex-direction: column;
 }
@@ -423,8 +423,8 @@ input:checked + .slider:before {
   overflow-y: auto;
   overflow-x: hidden;
   min-height: 0;
-  margin-right: -4px; 
-  padding-right: 4px;
+  margin-right: -16px;
+  padding: 8px 16px 12px 0;
 }
 
 .scrollable-area::-webkit-scrollbar {

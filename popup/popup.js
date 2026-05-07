@@ -73,14 +73,87 @@ class PopupManager {
   openSubpage(title) {
     const titleEl = document.getElementById('subpageTitle');
     if (titleEl) titleEl.textContent = title;
-    
+
     const wrapper = document.getElementById('appWrapper');
-    if (wrapper) wrapper.classList.add('show-subpage');
+    if (wrapper) {
+      wrapper.classList.add('show-subpage');
+      // 等待凭证管理模块渲染完成后再测量
+      setTimeout(() => this._syncSubpageHeight(), 50);
+    }
   }
 
   closeSubpage() {
     const wrapper = document.getElementById('appWrapper');
-    if (wrapper) wrapper.classList.remove('show-subpage');
+    if (wrapper) {
+      wrapper.classList.remove('show-subpage');
+      // 恢复主页时清除定高，让主页内容自然撑开
+      wrapper.style.height = '';
+    }
+    if (this._subpageObserver) {
+      this._subpageObserver.disconnect();
+      this._subpageObserver = null;
+    }
+  }
+
+  /**
+   * 动态同步子页面高度：按内容自适应，最大 492px
+   */
+  _syncSubpageHeight() {
+    const wrapper = document.getElementById('appWrapper');
+    const subpage = document.getElementById('viewSubpage');
+    const header = document.querySelector('.subpage-header');
+    const content = document.getElementById('credentialModuleContent');
+    if (!wrapper || !content || !subpage) return;
+
+    const measure = () => {
+      if (!wrapper.classList.contains('show-subpage')) return;
+      const headerH = header ? header.offsetHeight : 50;
+
+      // 准确测量所有内容的真实自然高度（剔除 flex: 1 的拉伸影响）
+      let childrenH = 0;
+      for (const child of content.children) {
+        const style = getComputedStyle(child);
+        const mt = parseFloat(style.marginTop) || 0;
+        const mb = parseFloat(style.marginBottom) || 0;
+        
+        // 临时取消 flex: 1 的伸展，让它回缩到真实内容高度
+        const oldFlex = child.style.flex;
+        child.style.flex = 'none';
+        
+        // 拿到没有被外力拉伸的真实高度
+        const h = child.scrollHeight;
+        
+        // 恢复原状
+        child.style.flex = oldFlex;
+        
+        childrenH += h + mt + mb;
+      }
+      
+      const cs = getComputedStyle(content);
+      const paddingH = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+
+      const total = headerH + paddingH + childrenH;
+      
+      // wrapper 最高 492px（留出 8px 给 margin 让圆角显示）
+      const h = Math.max(200, Math.min(total, 492));
+      
+      // 必须设置 wrapper 的高度，因为 view-subpage 是绝对定位(height: 100%)，依赖它！
+      wrapper.style.height = h + 'px';
+    };
+
+    measure();
+
+    // 持续监听内容变化
+    if (this._subpageObserver) this._subpageObserver.disconnect();
+    this._subpageObserver = new MutationObserver(() => {
+      // 测量前断开监听，避免 measure 内部修改 style 导致无限循环（滚动重置）
+      this._subpageObserver.disconnect();
+      requestAnimationFrame(() => {
+        measure();
+        this._subpageObserver.observe(content, { childList: true, subtree: true, characterData: true });
+      });
+    });
+    this._subpageObserver.observe(content, { childList: true, subtree: true, characterData: true });
   }
 
   /**
