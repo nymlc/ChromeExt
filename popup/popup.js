@@ -180,6 +180,25 @@ class PopupManager {
 
     document.getElementById('exportDataBtn').addEventListener('click', () => this.showExportDialog());
     document.getElementById('importDataBtn').addEventListener('click', () => this.showImportDialog());
+
+    // 齿轮菜单
+    const gearBtn = document.getElementById('gearBtn');
+    const gearDropdown = document.getElementById('gearDropdown');
+    
+    gearBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isOpen = gearDropdown.classList.contains('show');
+      gearDropdown.classList.toggle('show');
+      gearBtn.classList.toggle('active', !isOpen);
+    });
+
+    // 点击外部关闭
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('#gearMenuWrapper')) {
+        gearDropdown.classList.remove('show');
+        gearBtn.classList.remove('active');
+      }
+    });
   }
 
   async toggleGlobal() {

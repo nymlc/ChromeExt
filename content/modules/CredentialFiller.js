@@ -109,12 +109,15 @@ class CredentialFiller extends BaseContentModule {
         this.processedInputs.add(input);
 
         const showPopup = () => {
+            // 前置条件：页面必须存在密码框（含被切换为明文显示的）才认为是登录页
+            if (!this.hasPasswordField()) return;
+
             // 在事件触发时实时检测是否为登录输入框，避免因 DOM 动态加载顺序导致推断失败
             if (!this.isLoginInput(input)) return;
 
             // 如果当前已经在此输入框显示了弹窗，则不再重复创建
             if (this.popupEl && this.activeInput === input) return;
-            
+
             this.showCredentialPopup(input);
         };
 
@@ -273,10 +276,10 @@ class CredentialFiller extends BaseContentModule {
             transition: background 0.15s;
         `;
         collectBtn.textContent = '+ 采集当前填写凭证';
-        
+
         collectBtn.addEventListener('mouseenter', () => { collectBtn.style.background = '#eef0ff'; });
         collectBtn.addEventListener('mouseleave', () => { collectBtn.style.background = '#fafafa'; });
-        
+
         const handleCollect = async (e) => {
             e.preventDefault();
             this._isSelecting = true;
@@ -630,7 +633,7 @@ class CredentialFiller extends BaseContentModule {
             this.showToast('未检测到已填写的输入框');
             return;
         }
-        
+
         const usernameField = fields.find(f => f.type === 'username');
         const passwordField = fields.find(f => f.type === 'password');
         const customFields = fields.filter(f => f.type === 'custom').map(f => ({
@@ -654,13 +657,13 @@ class CredentialFiller extends BaseContentModule {
         const pageTitle = document.title;
         const result = await chrome.storage.local.get(['credentialProjects']);
         const projects = result.credentialProjects || [];
-        
+
         let project = this.currentProject;
         if (!project) {
             // 尝试通过 title 匹配
             project = projects.find(p => p.matchTitle && (pageTitle.toLowerCase().includes(p.matchTitle.toLowerCase()) || p.matchTitle.toLowerCase().includes(pageTitle.toLowerCase())));
         }
-        
+
         if (!project) {
             project = {
                 id: Date.now().toString(36) + Math.random().toString(36).substr(2, 9),
@@ -699,10 +702,10 @@ class CredentialFiller extends BaseContentModule {
             });
             msg = '凭证采集成功！';
         }
-        
+
         project.updatedAt = Date.now();
         await chrome.storage.local.set({ credentialProjects: projects });
-        
+
         this.currentProject = project; // 更新当前项目引用
         this.showToast(msg);
     }
