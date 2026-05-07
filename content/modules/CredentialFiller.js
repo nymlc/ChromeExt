@@ -595,31 +595,48 @@ class CredentialFiller extends BaseContentModule {
      * 简单的 Toast 提示（由于在 Content Script，需要自己实现 UI）
      */
     showToast(message) {
+        const isError = message.includes('未') || message.includes('失败');
+        const icon = isError ? '❌' : '✅';
+
         const toast = document.createElement('div');
-        toast.textContent = message;
+        toast.innerHTML = `
+            <span style="margin-right: 8px; font-size: 16px;">${icon}</span>
+            <span>${message}</span>
+        `;
         toast.style.cssText = `
             position: fixed;
-            top: 20px;
+            top: 24px;
             left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0,0,0,0.8);
-            color: white;
-            padding: 10px 20px;
+            transform: translate(-50%, -20px);
+            background: #ffffff;
+            color: #333333;
+            padding: 12px 20px;
             border-radius: 8px;
             font-size: 14px;
+            font-weight: 500;
             z-index: 2147483647;
             pointer-events: none;
             opacity: 0;
-            transition: opacity 0.3s;
-            font-family: -apple-system, sans-serif;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            display: flex;
+            align-items: center;
+            box-shadow: 0 6px 16px rgba(0,0,0,0.12), 0 2px 4px rgba(0,0,0,0.04);
+            border: 1px solid #f0f0f0;
+            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
         `;
         document.body.appendChild(toast);
+        
         // trigger reflow
         toast.offsetHeight;
+        
+        // 入场
         toast.style.opacity = '1';
+        toast.style.transform = 'translate(-50%, 0)';
+        
         setTimeout(() => {
+            // 退场
             toast.style.opacity = '0';
+            toast.style.transform = 'translate(-50%, -20px)';
             setTimeout(() => toast.remove(), 300);
         }, 2000);
     }
@@ -655,7 +672,16 @@ class CredentialFiller extends BaseContentModule {
         }
 
         const pageTitle = document.title;
-        const result = await chrome.storage.local.get(['credentialProjects']);
+        let result;
+        try {
+            result = await chrome.storage.local.get(['credentialProjects']);
+        } catch (e) {
+            if (e.message.includes('Extension context invalidated')) {
+                this.showToast('❌ 插件刚被重新加载，请刷新当前网页以继续使用。');
+                return;
+            }
+            throw e;
+        }
         const projects = result.credentialProjects || [];
 
         let project = this.currentProject;
