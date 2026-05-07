@@ -20,6 +20,9 @@ class CredentialManager extends BaseModule {
         await this.loadProjects();
         await this.getPageTitle();
 
+        // 绑定模块开关事件
+        this.bindModuleSwitch();
+
         // 优先使用手动绑定的项目，其次自动匹配
         const bound = await this.getBoundProject();
         const matched = bound || this.findProjectByTitle(this.pageTitle);
@@ -29,6 +32,31 @@ class CredentialManager extends BaseModule {
         }
 
         this.render();
+        this.updateModuleUI();
+    }
+
+    /**
+     * 绑定模块开关事件
+     */
+    bindModuleSwitch() {
+        const moduleSwitch = document.getElementById('credentialModuleEnabled');
+        if (moduleSwitch) {
+            moduleSwitch.addEventListener('change', async (e) => {
+                await this.toggleModuleEnabled(e.target.checked);
+                this.updateModuleUI();
+            });
+        }
+    }
+
+    /**
+     * 更新模块 UI 状态（开关 + 内容区禁用）
+     */
+    updateModuleUI() {
+        const moduleSwitch = document.getElementById('credentialModuleEnabled');
+        if (moduleSwitch) moduleSwitch.checked = this.moduleEnabled;
+
+        const moduleContent = document.getElementById('credentialModuleContent');
+        if (moduleContent) moduleContent.classList.toggle('disabled', !this.moduleEnabled);
     }
 
     async loadProjects() {
@@ -152,7 +180,7 @@ class CredentialManager extends BaseModule {
 
         // 项目列表
         const list = document.createElement('div');
-        list.className = 'credential-project-list';
+        list.className = 'credential-project-list scrollable-area';
         list.style.cssText = 'margin-top: 10px; display: flex; flex-direction: column; gap: 8px;';
 
         this.projects.forEach(project => {
@@ -336,6 +364,7 @@ class CredentialManager extends BaseModule {
         }
 
         const list = document.createElement('div');
+        list.className = 'scrollable-area';
         list.style.cssText = 'display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px;';
 
         sorted.forEach(cred => {
@@ -416,7 +445,7 @@ class CredentialManager extends BaseModule {
 
         // 操作按钮区
         const btnGroup = document.createElement('div');
-        btnGroup.style.cssText = 'display: flex; gap: 8px;';
+        btnGroup.style.cssText = 'display: flex; gap: 8px; flex-shrink: 0; margin-top: auto;';
 
         const addBtn = document.createElement('button');
         addBtn.className = 'btn btn-primary';
@@ -465,7 +494,8 @@ class CredentialManager extends BaseModule {
         container.appendChild(header);
 
         const form = document.createElement('div');
-        form.style.cssText = 'display: flex; flex-direction: column; gap: 8px;';
+        form.className = 'scrollable-area';
+        form.style.cssText = 'display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px;';
 
         // 备注名
         const labelInput = this.createInput('备注名', cred.label, '如：管理员账号');
@@ -570,8 +600,10 @@ class CredentialManager extends BaseModule {
             this.render();
         });
 
-        form.appendChild(saveBtn);
         container.appendChild(form);
+        
+        saveBtn.style.flexShrink = '0';
+        container.appendChild(saveBtn);
     }
 
     /**

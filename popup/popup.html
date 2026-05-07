@@ -1,88 +1,105 @@
-<!--
- * @Author: 林晨 linchen@yixin.im
- * @Date: 2026-01-26 17:14:31
- * @LastEditors: 林晨 linchen@yixin.im
- * @LastEditTime: 2026-03-18 13:51:09
- * @FilePath: /ChromeExt/popup/popup.html
- * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
--->
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>密码查看助手</title>
+  <title>极客百宝箱</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <div class="container">
-    <h1>密码查看助手</h1>
-    
-    <!-- 全局设置区域 -->
-    <div class="global-section">
-      <h2>全局设置</h2>
-      <div class="setting-item">
-        <span>扩展状态</span>
-        <button id="globalToggle" class="btn btn-small btn-primary">
-          <span id="globalToggleText">已启用</span>
-        </button>
-      </div>
-      <div class="setting-item" style="margin-top: 10px;">
-        <span>数据管理</span>
-        <div style="display: flex; gap: 6px;">
-          <button id="exportDataBtn" class="btn btn-small btn-secondary">导出</button>
-          <button id="importDataBtn" class="btn btn-small btn-secondary">导入</button>
-        </div>
-      </div>
-      <p class="hint">关闭后所有功能将在本网站禁用</p>
-    </div>
-
-    <!-- 模块区域（可滚动、可拖拽排序） -->
-    <div class="modules-container" id="modulesContainer">
-      <!-- 密码显示功能区域 -->
-      <div class="feature-module" data-module-id="password" draggable="true">
-        <div class="module-header">
-          <div class="module-header-left">
-            <span class="drag-handle" title="拖拽排序">⠿</span>
-            <h2>🔐 密码显示</h2>
-          </div>
-          <label class="switch">
-            <input type="checkbox" id="passwordModuleEnabled" checked>
-            <span class="slider"></span>
-          </label>
-        </div>
+  <div class="app-wrapper" id="appWrapper">
+    <!-- 主页视图 -->
+    <div class="view-home" id="viewHome">
+      <div class="container">
+        <h1>极客百宝箱</h1>
         
-        <div class="module-content" id="passwordModuleContent">
+        <!-- 全局设置区域 -->
+        <h2>全局设置</h2>
+        <div class="global-section">
           <div class="setting-item">
-            <button id="togglePassword" class="btn btn-primary btn-block">
-              <span id="toggleText">显示所有密码</span>
+            <span>扩展状态</span>
+            <button id="globalToggle" class="btn btn-small btn-primary">
+              <span id="globalToggleText">已启用</span>
             </button>
           </div>
-          
-          <p class="hint">双击密码框或点击眼睛图标可单独切换</p>
-        </div>
-      </div>
-
-      <!-- 凭证管理功能区域 -->
-      <div class="feature-module" data-module-id="credential" draggable="true">
-        <div class="module-header">
-          <div class="module-header-left">
-            <span class="drag-handle" title="拖拽排序">⠿</span>
-            <h2>🔑 凭证管理</h2>
+          <div class="setting-item">
+            <span>数据管理</span>
+            <div style="display: flex; gap: 6px;">
+              <button id="exportDataBtn" class="btn btn-small btn-secondary">导出</button>
+              <button id="importDataBtn" class="btn btn-small btn-secondary">导入</button>
+            </div>
           </div>
-          <label class="switch">
-            <input type="checkbox" id="credentialModuleEnabled" checked>
-            <span class="slider"></span>
-          </label>
         </div>
-        <div class="module-content" id="credentialModuleContent">
-          <!-- 由 CredentialManager.js 动态渲染 -->
+        <p class="hint">关闭后所有功能将在本网站禁用</p>
+
+        <!-- 模块区域（可滚动、可拖拽排序） -->
+        <h2>功能模块</h2>
+        <div class="modules-container" id="modulesContainer">
+          <!-- 密码显示功能区域 -->
+          <div class="feature-module" data-module-id="password" draggable="true">
+            <div class="module-header">
+              <div class="module-header-left">
+                <span class="drag-handle" title="拖拽排序">⠿</span>
+                <h2>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #007aff; margin-right: 6px;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                  密码显示
+                </h2>
+              </div>
+              <label class="switch" onclick="event.stopPropagation()">
+                <input type="checkbox" id="passwordModuleEnabled" checked>
+                <span class="slider"></span>
+              </label>
+            </div>
+            
+            <div class="module-content" id="passwordModuleContent">
+              <div class="setting-item">
+                <button id="togglePassword" class="btn btn-primary btn-block">
+                  <span id="toggleText">显示所有密码</span>
+                </button>
+              </div>
+              <p class="hint">双击密码框或点击眼睛图标可单独切换</p>
+            </div>
+          </div>
+
+          <!-- 凭证管理功能区域 -->
+          <div class="feature-module clickable-module" data-module-id="credential" draggable="true" id="credentialModuleEntry">
+            <div class="module-header" style="margin-bottom: 0; border-bottom: none; padding-bottom: 0;">
+              <div class="module-header-left">
+                <span class="drag-handle" title="拖拽排序">⠿</span>
+                <h2>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #ff9500; margin-right: 6px;"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path></svg>
+                  凭证管理
+                </h2>
+              </div>
+              <div class="module-header-right">
+                <span class="enter-icon">›</span>
+                <label class="switch" onclick="event.stopPropagation()">
+                  <input type="checkbox" id="credentialModuleEnabled" checked>
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="footer">
+          <p class="version">v1.0.0</p>
         </div>
       </div>
     </div>
-
-    <div class="footer">
-      <p class="version">v1.0.0</p>
+    
+    <!-- 子页面视图 -->
+    <div class="view-subpage" id="viewSubpage">
+      <div class="subpage-header">
+        <button id="subpageBackBtn" class="back-btn">
+          <span style="font-size: 18px; margin-right: 4px; line-height: 1;">‹</span> 返回
+        </button>
+        <h2 id="subpageTitle">标题</h2>
+        <div style="width: 50px;"></div> <!-- 占位符以居中标题 -->
+      </div>
+      <div class="subpage-content" id="credentialModuleContent">
+        <!-- 由 CredentialManager.js 动态渲染 -->
+      </div>
     </div>
   </div>
   

@@ -29,9 +29,6 @@ class BaseModule {
     return this.currentHostname;
   }
   
-  /**
-   * 初始化模块启用状态
-   */
   async initModuleStatus() {
     await this.getCurrentHostname();
     
@@ -41,13 +38,9 @@ class BaseModule {
     
     const result = await chrome.storage.local.get([moduleKey, siteKey, 'globalDisabledSites']);
     
-    // 检查全局禁用
+    // 记录全局禁用状态（可选，用于 UI 灰显等，但不应覆盖模块的真实状态）
     const globalDisabledSites = result.globalDisabledSites || [];
-    if (globalDisabledSites.includes(this.currentHostname)) {
-      this.moduleEnabled = false;
-      this.siteEnabled = false;
-      return;
-    }
+    this.isGloballyDisabled = globalDisabledSites.includes(this.currentHostname);
     
     // 检查模块全局启用状态
     this.moduleEnabled = result[moduleKey] !== false; // 默认启用

@@ -49,6 +49,38 @@ class PopupManager {
     // 恢复模块顺序并初始化拖拽
     await this.restoreModuleOrder();
     this.initDragSort();
+    
+    // 初始化路由导航
+    this.initNavigation();
+  }
+
+  initNavigation() {
+    const credentialEntry = document.getElementById('credentialModuleEntry');
+    if (credentialEntry) {
+      credentialEntry.addEventListener('click', (e) => {
+        // 防止点击开关或拖拽手柄时触发跳转
+        if (e.target.closest('.switch') || e.target.closest('.drag-handle')) return;
+        this.openSubpage('凭证管理');
+      });
+    }
+
+    const backBtn = document.getElementById('subpageBackBtn');
+    if (backBtn) {
+      backBtn.addEventListener('click', () => this.closeSubpage());
+    }
+  }
+
+  openSubpage(title) {
+    const titleEl = document.getElementById('subpageTitle');
+    if (titleEl) titleEl.textContent = title;
+    
+    const wrapper = document.getElementById('appWrapper');
+    if (wrapper) wrapper.classList.add('show-subpage');
+  }
+
+  closeSubpage() {
+    const wrapper = document.getElementById('appWrapper');
+    if (wrapper) wrapper.classList.remove('show-subpage');
   }
 
   /**

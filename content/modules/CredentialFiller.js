@@ -22,11 +22,12 @@ class CredentialFiller extends BaseContentModule {
         // 根据页面 title 匹配项目
         await this.matchProject();
 
-        // 监听输入框聚焦
+        // 先尝试绑定已有输入框，同时始终启动 MutationObserver 监听动态输入框
+        // 不再要求页面必须已有密码框，因为 SPA 页面可能后续才渲染登录表单
         this.setupInputListeners();
         this.observeNewInputs();
 
-        // 监听来自 popup 的消息
+        // 监听来自 popup 的消息（扫描和填充不受限制）
         chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
             if (request.action === 'scanPageInputs') {
                 const fields = this.scanInputs();
@@ -35,12 +36,20 @@ class CredentialFiller extends BaseContentModule {
                 this.fillCredential(request.credential);
                 sendResponse({ success: true });
             } else if (request.action === 'credentialProjectUpdated') {
-                // 项目数据更新后重新匹配
                 this.matchProject();
+                // 重新扫描页面上的输入框并绑定
+                this.setupInputListeners();
                 sendResponse({ success: true });
             }
             return true;
         });
+    }
+
+    /**
+     * 检测页面是否存在密码输入框（兼容密码可见功能切换后的状态）
+     */
+    hasPasswordField() {
+        return !!document.querySelector('input[type="password"], input[data-password-toggle="true"]');
     }
 
     /**
@@ -79,32 +88,58 @@ class CredentialFiller extends BaseContentModule {
     }
 
     /**
+     * 判断输入框是否是登录相关的（用户名或密码）
+     */
+    isLoginInput(input) {
+        const type = this.detectFieldType(input);
+        return type === 'username' || type === 'password';
+    }
+
+    /**
      * 绑定单个输入框
      */
     bindInput(input) {
         if (this.processedInputs.has(input)) return;
         this.processedInputs.add(input);
 
+        // 只在用户名和密码输入框上绑定
+        if (!this.isLoginInput(input)) return;
+
         input.addEventListener('focus', () => {
+            // 聚焦时实时检查：有匹配项目且有凭证才弹出
             if (this.currentProject && this.currentProject.credentials.length > 0) {
                 this.showCredentialPopup(input);
             }
         });
+
+        // 如果输入框当前已经处于聚焦状态（比如动态插入后自动聚焦），立即弹出
+        if (document.activeElement === input) {
+            if (this.currentProject && this.currentProject.credentials.length > 0) {
+                this.showCredentialPopup(input);
+            }
+        }
     }
 
     /**
      * 监听 DOM 变化，处理动态添加的输入框
      */
     observeNewInputs() {
+        if (this.observer) return; // 避免重复监听
+
         this.observer = new MutationObserver((mutations) => {
+            let hasNewInputs = false;
             mutations.forEach((mutation) => {
                 mutation.addedNodes.forEach((node) => {
                     if (node.nodeType !== 1) return;
                     if (node.tagName === 'INPUT') {
                         this.bindInput(node);
+                        hasNewInputs = true;
                     }
                     const inputs = node.querySelectorAll?.('input');
-                    inputs?.forEach(input => this.bindInput(input));
+                    if (inputs?.length) {
+                        inputs.forEach(input => this.bindInput(input));
+                        hasNewInputs = true;
+                    }
                 });
             });
         });
@@ -223,12 +258,16 @@ class CredentialFiller extends BaseContentModule {
         // 输入框失焦时延迟关闭（移动端键盘弹出也会触发 blur，加长延迟）
         this._blurHandler = () => {
             setTimeout(() => {
+                // 如果正在选择凭证项，或者焦点回到了弹窗内部，不关闭
                 if (!this._isSelecting && this.popupEl) {
+                    // 检查焦点是否仍在输入框或弹窗内
+                    if (this.popupEl.contains(document.activeElement)) return;
+                    if (document.activeElement === input) return;
                     this.hideCredentialPopup();
                 }
             }, 300);
         };
-        input.addEventListener('blur', this._blurHandler, { once: true });
+        input.addEventListener('blur', this._blurHandler);
 
         // 页面滚动/resize 时重新定位
         this._repositionHandler = () => {
@@ -282,6 +321,11 @@ class CredentialFiller extends BaseContentModule {
             window.removeEventListener('scroll', this._repositionHandler, true);
             window.removeEventListener('resize', this._repositionHandler);
             this._repositionHandler = null;
+        }
+        // 清理 blur 监听器
+        if (this.activeInput && this._blurHandler) {
+            this.activeInput.removeEventListener('blur', this._blurHandler);
+            this._blurHandler = null;
         }
         this._isSelecting = false;
         this.activeInput = null;
@@ -340,6 +384,9 @@ class CredentialFiller extends BaseContentModule {
         const type = (input.type || 'text').toLowerCase();
         if (type === 'password') return 'password';
 
+        // 兼容密码可见功能：被切换为 text 的密码框
+        if (input.getAttribute('data-password-toggle') === 'true') return 'password';
+
         // 收集所有可用于识别的文本线索
         const hints = [
             input.placeholder,
@@ -395,6 +442,10 @@ class CredentialFiller extends BaseContentModule {
         // 优先找 type="password"
         const pwdInput = document.querySelector('input[type="password"]');
         if (pwdInput) return pwdInput;
+
+        // 兼容密码可见功能切换后的状态
+        const toggledInput = document.querySelector('input[data-password-toggle="true"]');
+        if (toggledInput) return toggledInput;
 
         // 兜底：通过语义识别
         const allInputs = this.getVisibleInputs();

@@ -117,6 +117,23 @@ class ContentManager {
         }
       }
 
+      // 监听凭证模块网站禁用列表变化
+      if (changes.disabledCredentialSites) {
+        const disabledSites = changes.disabledCredentialSites.newValue || [];
+        const wasDisabled = changes.disabledCredentialSites.oldValue?.includes(hostname);
+        const isDisabled = disabledSites.includes(hostname);
+
+        if (wasDisabled && !isDisabled) {
+          console.log('凭证模块在本网站启用，重新初始化');
+          await this.initCredentialModule();
+        } else if (!wasDisabled && isDisabled) {
+          console.log('凭证模块在本网站禁用，清理模块');
+          if (this.modules.credentialFiller) {
+            this.modules.credentialFiller.destroy();
+          }
+        }
+      }
+
       // 监听凭证数据变化，通知 content 重新匹配项目
       if (changes.credentialProjects) {
         if (this.modules.credentialFiller) {
