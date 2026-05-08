@@ -49,7 +49,7 @@ class PopupManager {
     // 恢复模块顺序并初始化拖拽
     await this.restoreModuleOrder();
     this.initDragSort();
-    
+
     // 初始化路由导航
     this.initNavigation();
   }
@@ -115,28 +115,28 @@ class PopupManager {
         const style = getComputedStyle(child);
         const mt = parseFloat(style.marginTop) || 0;
         const mb = parseFloat(style.marginBottom) || 0;
-        
+
         // 临时取消 flex: 1 的伸展，让它回缩到真实内容高度
         const oldFlex = child.style.flex;
         child.style.flex = 'none';
-        
+
         // 拿到没有被外力拉伸的真实高度
         const h = child.scrollHeight;
-        
+
         // 恢复原状
         child.style.flex = oldFlex;
-        
+
         childrenH += h + mt + mb;
       }
-      
+
       const cs = getComputedStyle(content);
       const paddingH = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
 
       const total = headerH + paddingH + childrenH;
-      
+
       // wrapper 最高 492px（留出 8px 给 margin 让圆角显示）
       const h = Math.max(200, Math.min(total, 492));
-      
+
       // 必须设置 wrapper 的高度，因为 view-subpage 是绝对定位(height: 100%)，依赖它！
       wrapper.style.height = h + 'px';
     };
@@ -257,7 +257,7 @@ class PopupManager {
     // 齿轮菜单
     const gearBtn = document.getElementById('gearBtn');
     const gearDropdown = document.getElementById('gearDropdown');
-    
+
     gearBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       const isOpen = gearDropdown.classList.contains('show');
@@ -303,13 +303,12 @@ class PopupManager {
 
   updateGlobalUI() {
     const globalToggle = document.getElementById('globalToggle');
-    const globalToggleText = document.getElementById('globalToggleText');
 
     if (this.globalEnabled) {
-      globalToggleText.textContent = '已启用';
+      globalToggle.textContent = '已启用';
       globalToggle.className = 'btn btn-small btn-primary';
     } else {
-      globalToggleText.textContent = '已禁用';
+      globalToggle.textContent = '已禁用';
       globalToggle.className = 'btn btn-small btn-danger';
     }
   }

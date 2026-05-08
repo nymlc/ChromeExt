@@ -9,10 +9,15 @@ class CredentialFiller extends BaseContentModule {
     constructor() {
         super('credential');
         this.currentProject = null;
-        this.popupEl = null;
         this.activeInput = null;
         this.processedInputs = new WeakSet();
         this.observer = null;
+        this._tooltip = new SideTooltip({
+            gap: 25,
+            maxHeight: 280,
+            width: 260,
+            className: 'credential-filler-popup'
+        });
     }
 
     async init() {
@@ -116,7 +121,7 @@ class CredentialFiller extends BaseContentModule {
             if (!this.isLoginInput(input)) return;
 
             // 如果当前已经在此输入框显示了弹窗，则不再重复创建
-            if (this.popupEl && this.activeInput === input) return;
+            if (this._tooltip.isVisible && this.activeInput === input) return;
 
             this.showCredentialPopup(input);
         };
@@ -173,25 +178,7 @@ class CredentialFiller extends BaseContentModule {
             return 0;
         });
 
-        // 创建浮层
-        const popup = document.createElement('div');
-        popup.className = 'credential-filler-popup';
-        popup.style.cssText = `
-            position: fixed;
-            z-index: 2147483647;
-            background: #fff;
-            border: 1px solid #e0e0e0;
-            border-radius: 8px;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.15);
-            max-height: 240px;
-            min-width: 260px;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
-            font-size: 13px;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        `;
-
+        // 构建列表容器
         const listContainer = document.createElement('div');
         listContainer.style.cssText = `
             flex: 1;
@@ -258,8 +245,6 @@ class CredentialFiller extends BaseContentModule {
             listContainer.appendChild(item);
         });
 
-        popup.appendChild(listContainer);
-
         // 添加采集按钮
         const collectBtn = document.createElement('div');
         collectBtn.style.cssText = `
@@ -270,7 +255,7 @@ class CredentialFiller extends BaseContentModule {
             justify-content: center;
             color: #007aff;
             font-weight: 600;
-            background: #fafafa;
+            background: #fff;
             border-top: 1px solid #e5e5ea;
             flex-shrink: 0;
             transition: background 0.15s;
@@ -278,7 +263,7 @@ class CredentialFiller extends BaseContentModule {
         collectBtn.textContent = '+ 采集当前填写凭证';
 
         collectBtn.addEventListener('mouseenter', () => { collectBtn.style.background = '#eef0ff'; });
-        collectBtn.addEventListener('mouseleave', () => { collectBtn.style.background = '#fafafa'; });
+        collectBtn.addEventListener('mouseleave', () => { collectBtn.style.background = '#fff'; });
 
         const handleCollect = async (e) => {
             e.preventDefault();
@@ -290,90 +275,31 @@ class CredentialFiller extends BaseContentModule {
         collectBtn.addEventListener('mousedown', handleCollect);
         collectBtn.addEventListener('touchstart', handleCollect, { passive: false });
 
-        popup.appendChild(collectBtn);
-
-        document.body.appendChild(popup);
-        this.popupEl = popup;
-        this.positionPopup(popup, input);
-
-        // 点击/触摸外部关闭
-        this._outsideClickHandler = (e) => {
-            if (!popup.contains(e.target) && e.target !== input) {
-                this.hideCredentialPopup();
-            }
-        };
-        setTimeout(() => {
-            document.addEventListener('mousedown', this._outsideClickHandler);
-            document.addEventListener('touchstart', this._outsideClickHandler);
-        }, 100);
+        // 使用 SideTooltip 显示浮层
+        this._tooltip.show(input, [listContainer, collectBtn]);
 
         // 输入框失焦时延迟关闭（移动端键盘弹出也会触发 blur，加长延迟）
         this._blurHandler = () => {
             setTimeout(() => {
+                // 如果已经切换到了其他输入框（新弹窗已创建），旧的 blur 不应关闭新弹窗
+                if (this.activeInput !== input) return;
                 // 如果正在选择凭证项，或者焦点回到了弹窗内部，不关闭
-                if (!this._isSelecting && this.popupEl) {
+                if (!this._isSelecting && this._tooltip.isVisible) {
                     // 检查焦点是否仍在输入框或弹窗内
-                    if (this.popupEl.contains(document.activeElement)) return;
+                    if (this._tooltip.popupEl && this._tooltip.popupEl.contains(document.activeElement)) return;
                     if (document.activeElement === input) return;
                     this.hideCredentialPopup();
                 }
             }, 300);
         };
         input.addEventListener('blur', this._blurHandler);
-
-        // 页面滚动/resize 时重新定位
-        this._repositionHandler = () => {
-            if (this.popupEl && this.activeInput) {
-                this.positionPopup(this.popupEl, this.activeInput);
-            }
-        };
-        window.addEventListener('scroll', this._repositionHandler, true);
-        window.addEventListener('resize', this._repositionHandler);
-    }
-
-    /**
-     * 定位浮层到输入框下方（使用 fixed 定位，基于视口）
-     */
-    positionPopup(popup, input) {
-        const rect = input.getBoundingClientRect();
-        const popupHeight = popup.offsetHeight || 240;
-        const viewportHeight = window.innerHeight;
-
-        // 判断下方空间是否足够，不够则显示在上方
-        const spaceBelow = viewportHeight - rect.bottom;
-        if (spaceBelow < popupHeight && rect.top > spaceBelow) {
-            popup.style.top = '';
-            popup.style.bottom = `${viewportHeight - rect.top + 4}px`;
-        } else {
-            popup.style.bottom = '';
-            popup.style.top = `${rect.bottom + 4}px`;
-        }
-
-        popup.style.left = `${Math.max(4, rect.left)}px`;
-        popup.style.minWidth = `${Math.max(rect.width, 260)}px`;
-        // 不超出右边界
-        const maxWidth = window.innerWidth - Math.max(4, rect.left) - 4;
-        popup.style.maxWidth = `${maxWidth}px`;
     }
 
     /**
      * 隐藏浮层
      */
     hideCredentialPopup() {
-        if (this.popupEl) {
-            this.popupEl.remove();
-            this.popupEl = null;
-        }
-        if (this._outsideClickHandler) {
-            document.removeEventListener('mousedown', this._outsideClickHandler);
-            document.removeEventListener('touchstart', this._outsideClickHandler);
-            this._outsideClickHandler = null;
-        }
-        if (this._repositionHandler) {
-            window.removeEventListener('scroll', this._repositionHandler, true);
-            window.removeEventListener('resize', this._repositionHandler);
-            this._repositionHandler = null;
-        }
+        this._tooltip.hide();
         // 清理 blur 监听器
         if (this.activeInput && this._blurHandler) {
             this.activeInput.removeEventListener('blur', this._blurHandler);
@@ -592,62 +518,12 @@ class CredentialFiller extends BaseContentModule {
     }
 
     /**
-     * 简单的 Toast 提示（由于在 Content Script，需要自己实现 UI）
-     */
-    showToast(message) {
-        const isError = message.includes('未') || message.includes('失败');
-        const icon = isError ? '❌' : '✅';
-
-        const toast = document.createElement('div');
-        toast.innerHTML = `
-            <span style="margin-right: 8px; font-size: 16px;">${icon}</span>
-            <span>${message}</span>
-        `;
-        toast.style.cssText = `
-            position: fixed;
-            top: 24px;
-            left: 50%;
-            transform: translate(-50%, -20px);
-            background: #ffffff;
-            color: #333333;
-            padding: 12px 20px;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 500;
-            z-index: 2147483647;
-            pointer-events: none;
-            opacity: 0;
-            display: flex;
-            align-items: center;
-            box-shadow: 0 6px 16px rgba(0,0,0,0.12), 0 2px 4px rgba(0,0,0,0.04);
-            border: 1px solid #f0f0f0;
-            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-        `;
-        document.body.appendChild(toast);
-        
-        // trigger reflow
-        toast.offsetHeight;
-        
-        // 入场
-        toast.style.opacity = '1';
-        toast.style.transform = 'translate(-50%, 0)';
-        
-        setTimeout(() => {
-            // 退场
-            toast.style.opacity = '0';
-            toast.style.transform = 'translate(-50%, -20px)';
-            setTimeout(() => toast.remove(), 300);
-        }, 2000);
-    }
-
-    /**
      * 在页面内采集当前填写的凭证并直接保存
      */
     async collectCurrentCredential() {
         const fields = this.scanInputs();
         if (!fields || fields.length === 0) {
-            this.showToast('未检测到已填写的输入框');
+            Toast.warning('未检测到已填写的输入框');
             return;
         }
 
@@ -660,14 +536,14 @@ class CredentialFiller extends BaseContentModule {
         }));
 
         if (!usernameField && !passwordField) {
-            this.showToast('未填写任何用户名或密码');
+            Toast.warning('未填写任何用户名或密码');
             return;
         }
 
         const username = usernameField ? usernameField.value.trim() : '';
         const password = passwordField ? passwordField.value.trim() : '';
         if (!username || !password) {
-            this.showToast('用户名和密码必须都填写完整才能采集');
+            Toast.warning('用户名和密码必须都填写完整才能采集');
             return;
         }
 
@@ -677,7 +553,7 @@ class CredentialFiller extends BaseContentModule {
             result = await chrome.storage.local.get(['credentialProjects']);
         } catch (e) {
             if (e.message.includes('Extension context invalidated')) {
-                this.showToast('❌ 插件刚被重新加载，请刷新当前网页以继续使用。');
+                Toast.error('插件刚被重新加载，请刷新当前网页以继续使用。');
                 return;
             }
             throw e;
@@ -733,7 +609,7 @@ class CredentialFiller extends BaseContentModule {
         await chrome.storage.local.set({ credentialProjects: projects });
 
         this.currentProject = project; // 更新当前项目引用
-        this.showToast(msg);
+        Toast.success(msg);
     }
 
     destroy() {

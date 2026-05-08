@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>极客百宝箱</title>
   <link rel="stylesheet" href="popup.css">
 </head>
+
 <body>
   <div class="app-wrapper" id="appWrapper">
     <!-- 主页视图 -->
@@ -16,17 +18,18 @@
           <div class="header-actions">
             <div class="gear-menu-wrapper" id="gearMenuWrapper">
               <button class="gear-btn" id="gearBtn" title="全局设置">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round">
                   <circle cx="12" cy="12" r="3"></circle>
-                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                  <path
+                    d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z">
+                  </path>
                 </svg>
               </button>
               <div class="gear-dropdown" id="gearDropdown">
                 <div class="gear-dropdown-item">
                   <span>扩展状态</span>
-                  <button id="globalToggle" class="btn btn-small btn-primary">
-                    <span id="globalToggleText">已启用</span>
-                  </button>
+                  <button id="globalToggle" class="btn btn-small btn-primary">已启用</button>
                 </div>
                 <div class="gear-dropdown-divider"></div>
                 <div class="gear-dropdown-item">
@@ -49,7 +52,11 @@
               <div class="module-header-left">
                 <span class="drag-handle" title="拖拽排序">⠿</span>
                 <h2>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #007aff; margin-right: 6px;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round" style="color: #007aff; margin-right: 6px;">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                  </svg>
                   密码显示
                 </h2>
               </div>
@@ -58,7 +65,7 @@
                 <span class="slider"></span>
               </label>
             </div>
-            
+
             <div class="module-content" id="passwordModuleContent">
               <div class="setting-item">
                 <button id="togglePassword" class="btn btn-primary btn-block">
@@ -70,12 +77,18 @@
           </div>
 
           <!-- 凭证管理功能区域 -->
-          <div class="feature-module clickable-module" data-module-id="credential" draggable="true" id="credentialModuleEntry">
+          <div class="feature-module clickable-module" data-module-id="credential" draggable="true"
+            id="credentialModuleEntry">
             <div class="module-header" style="margin-bottom: 0; border-bottom: none; padding-bottom: 0;">
               <div class="module-header-left">
                 <span class="drag-handle" title="拖拽排序">⠿</span>
                 <h2>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #ff9500; margin-right: 6px;"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path></svg>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round" style="color: #ff9500; margin-right: 6px;">
+                    <path
+                      d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4">
+                    </path>
+                  </svg>
                   凭证管理
                 </h2>
               </div>
@@ -95,7 +108,7 @@
         </div>
       </div>
     </div>
-    
+
     <!-- 子页面视图 -->
     <div class="view-subpage" id="viewSubpage">
       <div class="subpage-header">
@@ -110,11 +123,12 @@
       </div>
     </div>
   </div>
-  
-  <script src="utils/Toast.js"></script>
+
+  <script src="../shared/Toast.js"></script>
   <script src="modules/BaseModule.js"></script>
   <script src="modules/PasswordToggle.js"></script>
   <script src="modules/CredentialManager.js"></script>
   <script src="popup.js"></script>
 </body>
+
 </html>

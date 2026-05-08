@@ -42,6 +42,8 @@
         "<all_urls>"
       ],
       "js": [
+        "shared/Toast.js",
+        "shared/SideTooltip.js",
         "content/modules/BaseModule.js",
         "content/modules/PasswordHelper.js",
         "content/modules/CredentialFiller.js",
