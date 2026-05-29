@@ -190,12 +190,12 @@ class SideTooltip {
     // 确定实际放置方向
     let dir = this.placement;
     if (dir === 'auto') {
-      // 优先级：右 → 左 → 下 → 上
-      if (space.right >= popupWidth + gap) dir = 'right';
-      else if (space.left >= popupWidth + gap) dir = 'left';
+      // 优先级：左 → 右 → 下 → 上
+      if (space.left >= popupWidth + gap) dir = 'left';
+      else if (space.right >= popupWidth + gap) dir = 'right';
       else if (space.bottom >= popupHeight + gap) dir = 'bottom';
       else if (space.top >= popupHeight + gap) dir = 'top';
-      else dir = space.right >= space.left ? 'right' : 'left'; // 都不够就选大的
+      else dir = space.left >= space.right ? 'left' : 'right'; // 都不够就选大的
     }
 
     let popupLeft, popupTop;
