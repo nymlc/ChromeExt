@@ -8,7 +8,7 @@
 class CredentialFiller extends BaseContentModule {
     constructor() {
         super('credential');
-        this.currentProject = null;
+        this._currentProject = null;
         this.activeInput = null;
         this.processedInputs = new WeakSet();
         this.observer = null;
@@ -18,19 +18,38 @@ class CredentialFiller extends BaseContentModule {
             width: 260,
             className: 'credential-filler-popup'
         });
+        this._anchorEl = null;
+        this._iframeSource = null;
+        this._parentMessageHandler = null;
+    }
+
+    get currentProject() { return this._currentProject; }
+    set currentProject(val) {
+        // console.trace('[CredentialFiller] currentProject =', val?.name ?? null);
+        this._currentProject = val;
     }
 
     async init() {
         const enabled = await this.checkModuleEnabled();
         if (!enabled) return;
 
+        // 提前启动 observer，避免 matchProject 异步期间漏掉动态插入的输入框
+        this.observeNewInputs();
+        this._observeTitleChange();
+
         // 根据页面 title 匹配项目
         await this.matchProject();
 
-        // 先尝试绑定已有输入框，同时始终启动 MutationObserver 监听动态输入框
-        // 不再要求页面必须已有密码框，因为 SPA 页面可能后续才渲染登录表单
         this.setupInputListeners();
-        this.observeNewInputs();
+        this._startRetryScanning();
+
+        if (window !== window.top) {
+            // iframe 内：监听父页面回传的填充/采集/关闭指令
+            this._setupParentMessageListener();
+        } else {
+            // 顶层页面：监听来自 iframe 的弹窗请求
+            this._setupIframeMessageListener();
+        }
 
         // 监听来自 popup 的消息（扫描和填充不受限制）
         chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
@@ -50,6 +69,111 @@ class CredentialFiller extends BaseContentModule {
         });
     }
 
+    _setupParentMessageListener() {
+        this._parentMessageHandler = (e) => {
+            if (e.source !== window.parent) return;
+            let data;
+            try { data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data; } catch { return; }
+            const { type, credential } = data || {};
+            if (type === 'CREDENTIAL_FILLER_FILL') {
+                this.fillCredential(credential);
+                this._clearBlurHandler();
+                this.activeInput = null;
+            } else if (type === 'CREDENTIAL_FILLER_COLLECT') {
+                this.collectCurrentCredential();
+                this._clearBlurHandler();
+                this.activeInput = null;
+            } else if (type === 'CREDENTIAL_FILLER_HIDE') {
+                this._clearBlurHandler();
+                this.activeInput = null;
+            }
+        };
+        window.addEventListener('message', this._parentMessageHandler);
+    }
+
+    _setupIframeMessageListener() {
+        window.addEventListener('message', (e) => {
+            let data;
+            try { data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data; } catch { return; }
+
+            // 响应 iframe 的上下文请求
+            if (data?.type === 'CREDENTIAL_GET_CONTEXT') {
+                e.source?.postMessage(JSON.stringify({
+                    type: 'CREDENTIAL_CONTEXT_RESPONSE',
+                    msgId: data.msgId,
+                    context: { title: document.title }
+                }), '*');
+                return;
+            }
+
+            if (data?.type !== 'CREDENTIAL_FILLER_SHOW') return;
+            // 验证消息来源是页面内已知的 iframe
+            const iframeEl = Array.from(document.querySelectorAll('iframe'))
+                .find(f => f.contentWindow === e.source);
+            if (!iframeEl) return;
+            this._showPopupForIframe(data, iframeEl, e.source);
+        });
+    }
+
+    /**
+     * 获取顶层页面的上下文（title 等）
+     * 顶层页面直接返回，跨域 iframe 通过 postMessage 请求顶层回传
+     */
+    _getTopContext() {
+        return new Promise((resolve) => {
+            if (window === window.top) {
+                resolve({ title: document.title });
+                return;
+            }
+
+            const msgId = Math.random().toString(36).slice(2);
+            const handler = (e) => {
+                let data;
+                try { data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data; } catch { return; }
+                if (data?.type === 'CREDENTIAL_CONTEXT_RESPONSE' && data?.msgId === msgId) {
+                    window.removeEventListener('message', handler);
+                    resolve(data.context);
+                }
+            };
+            window.addEventListener('message', handler);
+            window.top.postMessage(JSON.stringify({ type: 'CREDENTIAL_GET_CONTEXT', msgId }), '*');
+
+            // 500ms 超时兜底，避免顶层页面无响应时卡住
+            setTimeout(() => {
+                window.removeEventListener('message', handler);
+                resolve({ title: '' });
+            }, 500);
+        });
+    }
+
+    _observeTitleChange() {
+        // 只在顶层页面监听 title 变化，iframe 不需要
+        if (window !== window.top) return;
+
+        const titleEl = document.querySelector('title');
+        if (!titleEl) return;
+
+        this._titleObserver = new MutationObserver(() => {
+            this.matchProject();
+        });
+        this._titleObserver.observe(titleEl, { childList: true });
+    }
+
+    _startRetryScanning() {
+        const MAX_DURATION = 5000;
+        const INTERVAL = 500;
+        const start = Date.now();
+
+        this._retryScanTimer = setInterval(() => {
+            if (Date.now() - start >= MAX_DURATION) {
+                clearInterval(this._retryScanTimer);
+                this._retryScanTimer = null;
+                return;
+            }
+            this.setupInputListeners();
+        }, INTERVAL);
+    }
+
     /**
      * 检测页面是否存在密码输入框（兼容密码可见功能切换后的状态）
      */
@@ -61,7 +185,7 @@ class CredentialFiller extends BaseContentModule {
      * 根据页面 title 模糊匹配项目
      */
     async matchProject() {
-        const pageTitle = document.title;
+        const { title: pageTitle } = await this._getTopContext();
         const result = await chrome.storage.local.get(['credentialProjects', 'titleProjectBindings']);
         const projects = result.credentialProjects || [];
         const bindings = result.titleProjectBindings || {};
@@ -73,13 +197,20 @@ class CredentialFiller extends BaseContentModule {
             if (this.currentProject) return;
         }
 
-        // 其次模糊匹配
-        this.currentProject = projects.find(p => {
+        // 其次模糊匹配（pageTitle 为空时跳过，避免空字符串匹配任意项目）
+        this.currentProject = pageTitle ? (projects.find(p => {
             if (!p.matchTitle) return false;
             const mt = p.matchTitle.toLowerCase();
             const pt = pageTitle.toLowerCase();
             return pt.includes(mt) || mt.includes(pt);
-        }) || null;
+        }) || null) : null;
+
+        // console.log('[CredentialFiller] matchProject', {
+        //     href: window.location.href,
+        //     pageTitle,
+        //     matched: this._currentProject ? { id: this._currentProject.id, name: this._currentProject.name, matchTitle: this._currentProject.matchTitle } : null,
+        //     allProjects: projects.map(p => ({ id: p.id, name: p.name, matchTitle: p.matchTitle }))
+        // });
     }
 
     /**
@@ -112,7 +243,7 @@ class CredentialFiller extends BaseContentModule {
     bindInput(input) {
         if (this.processedInputs.has(input)) return;
         this.processedInputs.add(input);
-
+        
         const showPopup = () => {
             // 前置条件：页面必须存在密码框（含被切换为明文显示的）才认为是登录页
             if (!this.hasPasswordField()) return;
@@ -166,6 +297,12 @@ class CredentialFiller extends BaseContentModule {
      * 在输入框下方显示凭证选择浮层
      */
     showCredentialPopup(input) {
+        // iframe 内：通过 postMessage 委托父页面渲染，避免被 iframe 边界裁剪
+        if (window !== window.top) {
+            this._showPopupViaParent(input);
+            return;
+        }
+
         this.hideCredentialPopup();
         this.activeInput = input;
         this._isSelecting = false;
@@ -296,17 +433,172 @@ class CredentialFiller extends BaseContentModule {
     }
 
     /**
+     * iframe 内：把弹窗请求委托给父页面渲染
+     */
+    _showPopupViaParent(input) {
+        this._clearBlurHandler();
+        this.activeInput = input;
+        this._isSelecting = false;
+
+        const rect = input.getBoundingClientRect();
+        window.parent.postMessage(JSON.stringify({
+            type: 'CREDENTIAL_FILLER_SHOW',
+            rect: { top: rect.top, left: rect.left, bottom: rect.bottom, right: rect.right, width: rect.width, height: rect.height },
+        }), '*');
+
+        this._blurHandler = () => {
+            setTimeout(() => {
+                if (this.activeInput !== input) return;
+                if (!this._isSelecting) {
+                    window.parent.postMessage(JSON.stringify({ type: 'CREDENTIAL_FILLER_HIDE' }), '*');
+                    this._clearBlurHandler();
+                    this.activeInput = null;
+                }
+            }, 300);
+        };
+        input.addEventListener('blur', this._blurHandler);
+    }
+
+    /**
+     * 顶层页面：接收 iframe 的弹窗请求，在父页面 DOM 里渲染 tooltip
+     */
+    _showPopupForIframe(data, iframeEl, iframeSource) {
+        this.hideCredentialPopup();
+
+        const iframeRect = iframeEl.getBoundingClientRect();
+        const inputRect = data.rect;
+        const projectCredentials = this.currentProject ? this.currentProject.credentials : [];
+        const credentials = [...projectCredentials].sort((a, b) => {
+            if (a.status === 'active' && b.status !== 'active') return -1;
+            if (a.status !== 'active' && b.status === 'active') return 1;
+            return 0;
+        });
+        this._iframeSource = iframeSource;
+
+        // 创建 0x0 锚点 div，位置 = iframe 偏移 + input 在 iframe 内的偏移
+        const anchor = document.createElement('div');
+        anchor.style.cssText = `
+            position: fixed;
+            width: ${inputRect.width}px;
+            height: ${inputRect.height}px;
+            top: ${iframeRect.top + inputRect.top}px;
+            left: ${iframeRect.left + inputRect.left}px;
+            pointer-events: none;
+        `;
+        document.body.appendChild(anchor);
+        this._anchorEl = anchor;
+
+        // 构建凭证列表
+        const listContainer = document.createElement('div');
+        listContainer.style.cssText = `flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;`;
+
+        credentials.forEach(cred => {
+            const item = document.createElement('div');
+            const isDisabled = cred.status === 'disabled';
+            item.style.cssText = `
+                padding: 10px 14px;
+                cursor: pointer;
+                border-bottom: 1px solid #f5f5f5;
+                display: flex;
+                flex-direction: column;
+                gap: 2px;
+                opacity: ${isDisabled ? '0.5' : '1'};
+                transition: background 0.15s;
+            `;
+
+            const labelLine = document.createElement('div');
+            labelLine.style.cssText = `font-weight: 600; color: #333; display: flex; align-items: center; gap: 6px;`;
+            labelLine.textContent = cred.label || '未命名';
+            if (isDisabled) {
+                const badge = document.createElement('span');
+                badge.textContent = cred.disabledReason || '已失效';
+                badge.style.cssText = `font-size: 11px; font-weight: 400; color: #f44336; background: #ffebee; padding: 1px 6px; border-radius: 4px;`;
+                labelLine.appendChild(badge);
+            }
+
+            const userLine = document.createElement('div');
+            userLine.style.cssText = `color: #888; font-size: 12px;`;
+            userLine.textContent = cred.username;
+
+            item.appendChild(labelLine);
+            item.appendChild(userLine);
+
+            item.addEventListener('mouseenter', () => { item.style.background = '#f5f7ff'; });
+            item.addEventListener('mouseleave', () => { item.style.background = ''; });
+            item.addEventListener('mousedown', (ev) => {
+                ev.preventDefault();
+                this._iframeSource?.postMessage(JSON.stringify({ type: 'CREDENTIAL_FILLER_FILL', credential: cred }), '*');
+                this.hideCredentialPopup();
+            });
+            item.addEventListener('touchend', (ev) => {
+                ev.preventDefault();
+                this._iframeSource?.postMessage(JSON.stringify({ type: 'CREDENTIAL_FILLER_FILL', credential: cred }), '*');
+                this.hideCredentialPopup();
+            });
+
+            listContainer.appendChild(item);
+        });
+
+        // 采集按钮
+        const collectBtn = document.createElement('div');
+        collectBtn.style.cssText = `
+            padding: 10px 14px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #007aff;
+            font-weight: 600;
+            background: #fff;
+            border-top: 1px solid #e5e5ea;
+            flex-shrink: 0;
+            transition: background 0.15s;
+        `;
+        collectBtn.textContent = '+ 采集当前填写凭证';
+        collectBtn.addEventListener('mouseenter', () => { collectBtn.style.background = '#eef0ff'; });
+        collectBtn.addEventListener('mouseleave', () => { collectBtn.style.background = '#fff'; });
+
+        const handleCollect = (ev) => {
+            ev.preventDefault();
+            this._iframeSource?.postMessage(JSON.stringify({ type: 'CREDENTIAL_FILLER_COLLECT' }), '*');
+            this.hideCredentialPopup();
+        };
+        collectBtn.addEventListener('mousedown', handleCollect);
+        collectBtn.addEventListener('touchstart', handleCollect, { passive: false });
+
+        this._tooltip.show(anchor, [listContainer, collectBtn], {
+            onHide: () => {
+                this._iframeSource?.postMessage(JSON.stringify({ type: 'CREDENTIAL_FILLER_HIDE' }), '*');
+                if (this._anchorEl) {
+                    this._anchorEl.remove();
+                    this._anchorEl = null;
+                }
+                this._iframeSource = null;
+            }
+        });
+    }
+
+    /**
      * 隐藏浮层
      */
     hideCredentialPopup() {
         this._tooltip.hide();
-        // 清理 blur 监听器
+        this._clearBlurHandler();
+        // 父页面：清理 iframe 锚点
+        if (this._anchorEl) {
+            this._anchorEl.remove();
+            this._anchorEl = null;
+        }
+        this._iframeSource = null;
+        this._isSelecting = false;
+        this.activeInput = null;
+    }
+
+    _clearBlurHandler() {
         if (this.activeInput && this._blurHandler) {
             this.activeInput.removeEventListener('blur', this._blurHandler);
             this._blurHandler = null;
         }
-        this._isSelecting = false;
-        this.activeInput = null;
     }
 
     /**
@@ -547,7 +839,7 @@ class CredentialFiller extends BaseContentModule {
             return;
         }
 
-        const pageTitle = document.title;
+        const { title: pageTitle } = await this._getTopContext();
         let result;
         try {
             result = await chrome.storage.local.get(['credentialProjects']);
@@ -608,15 +900,30 @@ class CredentialFiller extends BaseContentModule {
         project.updatedAt = Date.now();
         await chrome.storage.local.set({ credentialProjects: projects });
 
-        this.currentProject = project; // 更新当前项目引用
+        // 仅在本来就匹配到项目时更新引用，避免 iframe 等无 title 页面错误认领新建项目
+        if (this.currentProject && this.currentProject.id === project.id) {
+            this.currentProject = project;
+        }
         Toast.success(msg);
     }
 
     destroy() {
         this.hideCredentialPopup();
+        if (this._retryScanTimer) {
+            clearInterval(this._retryScanTimer);
+            this._retryScanTimer = null;
+        }
         if (this.observer) {
             this.observer.disconnect();
             this.observer = null;
+        }
+        if (this._titleObserver) {
+            this._titleObserver.disconnect();
+            this._titleObserver = null;
+        }
+        if (this._parentMessageHandler) {
+            window.removeEventListener('message', this._parentMessageHandler);
+            this._parentMessageHandler = null;
         }
         this.processedInputs = new WeakSet();
         console.log('凭证填充功能已清理');
