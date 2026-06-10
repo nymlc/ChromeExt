@@ -472,6 +472,18 @@ class CredentialManager extends BaseModule {
             row2.textContent = cred.username;
             card.appendChild(row2);
 
+            // 第三行：备注（有内容才显示）
+            if (cred.note) {
+                const noteRow = document.createElement('div');
+                noteRow.style.cssText = `
+                    font-size: 11px; color: #996b00; background: #fffbf0;
+                    border-radius: 4px; padding: 3px 7px; margin-top: 5px;
+                    border-left: 2px solid #f0c060; line-height: 1.5;
+                `;
+                noteRow.textContent = cred.note;
+                card.appendChild(noteRow);
+            }
+
             list.appendChild(card);
         });
 
@@ -507,7 +519,7 @@ class CredentialManager extends BaseModule {
      */
     renderCredentialEdit(container) {
         const isEdit = !!this.editingCredential;
-        const cred = this.editingCredential || { label: '', username: '', password: '', customFields: [], status: 'active', disabledReason: '' };
+        const cred = this.editingCredential || { label: '', username: '', password: '', note: '', customFields: [], status: 'active', disabledReason: '' };
 
         // 返回按钮
         const header = document.createElement('div');
@@ -537,10 +549,13 @@ class CredentialManager extends BaseModule {
         const usernameInput = this.createInput('用户名', cred.username, '请输入用户名');
         // 密码
         const passwordInput = this.createInput('密码', cred.password, '请输入密码', 'text');
+        // 备注
+        const noteWrapper = this.createNoteInput(cred.note);
 
         form.appendChild(labelInput.wrapper);
         form.appendChild(usernameInput.wrapper);
         form.appendChild(passwordInput.wrapper);
+        form.appendChild(noteWrapper.wrapper);
 
         // 自定义字段区域
         const customFieldsContainer = document.createElement('div');
@@ -603,6 +618,7 @@ class CredentialManager extends BaseModule {
                 cred.username = username;
                 cred.password = password;
                 cred.customFields = customFields;
+                cred.note = noteWrapper.textarea.value.trim();
             } else {
                 // 用户名重复则覆盖
                 const existingIdx = this.currentProject.credentials.findIndex(c => c.username === username);
@@ -612,6 +628,7 @@ class CredentialManager extends BaseModule {
                     existing.username = username;
                     existing.password = password;
                     existing.customFields = customFields;
+                    existing.note = noteWrapper.textarea.value.trim();
                     Toast.success('同名用户已存在，已覆盖更新');
                 } else {
                     this.currentProject.credentials.push({
@@ -620,6 +637,7 @@ class CredentialManager extends BaseModule {
                         username,
                         password,
                         customFields,
+                        note: noteWrapper.textarea.value.trim(),
                         status: 'active',
                         disabledReason: ''
                     });
@@ -663,6 +681,32 @@ class CredentialManager extends BaseModule {
         wrapper.appendChild(label);
         wrapper.appendChild(input);
         return { wrapper, input };
+    }
+
+    /**
+     * 创建备注 textarea 组件
+     */
+    createNoteInput(value) {
+        const wrapper = document.createElement('div');
+        const label = document.createElement('div');
+        label.textContent = '备注';
+        label.style.cssText = 'font-size: 12px; color: #666; margin-bottom: 3px;';
+
+        const textarea = document.createElement('textarea');
+        textarea.value = value || '';
+        textarea.placeholder = '可选，填写补充说明，如：测试环境、有效期至2025年底等';
+        textarea.rows = 2;
+        textarea.style.cssText = `
+            width: 100%; padding: 8px 10px; border: 1px solid #e0e0e0; border-radius: 6px;
+            font-size: 12px; outline: none; transition: border-color 0.2s; box-sizing: border-box;
+            resize: none; line-height: 1.5; color: #555; font-family: inherit;
+        `;
+        textarea.addEventListener('focus', () => { textarea.style.borderColor = '#667eea'; });
+        textarea.addEventListener('blur', () => { textarea.style.borderColor = '#e0e0e0'; });
+
+        wrapper.appendChild(label);
+        wrapper.appendChild(textarea);
+        return { wrapper, textarea };
     }
 
     /**
@@ -842,16 +886,18 @@ class CredentialManager extends BaseModule {
                 username,
                 password: passwordField ? passwordField.value : '',
                 customFields,
+                note: '',
                 status: 'active',
                 disabledReason: ''
             };
 
             const existingIdx = project.credentials.findIndex(c => c.username === username && username);
             if (existingIdx >= 0) {
-                // 保留原有 id 和 status
+                // 保留原有 id、status 和 note
                 newCred.id = project.credentials[existingIdx].id;
                 newCred.status = project.credentials[existingIdx].status;
                 newCred.disabledReason = project.credentials[existingIdx].disabledReason;
+                newCred.note = project.credentials[existingIdx].note || '';
                 project.credentials[existingIdx] = newCred;
                 Toast.success('凭证已覆盖更新');
             } else {

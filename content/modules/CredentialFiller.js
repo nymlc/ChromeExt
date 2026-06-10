@@ -357,6 +357,18 @@ class CredentialFiller extends BaseContentModule {
             item.appendChild(labelLine);
             item.appendChild(userLine);
 
+            // 备注行（有内容才显示）
+            if (cred.note) {
+                const noteLine = document.createElement('div');
+                noteLine.style.cssText = `
+                    font-size: 11px; color: #996b00; background: #fffbf0;
+                    border-radius: 4px; padding: 2px 7px; margin-top: 3px;
+                    border-left: 2px solid #f0c060; line-height: 1.5;
+                `;
+                noteLine.textContent = cred.note;
+                item.appendChild(noteLine);
+            }
+
             // 桌面端
             item.addEventListener('mouseenter', () => { item.style.background = '#f5f7ff'; });
             item.addEventListener('mouseleave', () => { item.style.background = ''; });
@@ -522,6 +534,18 @@ class CredentialFiller extends BaseContentModule {
 
             item.appendChild(labelLine);
             item.appendChild(userLine);
+
+            // 备注行（有内容才显示）
+            if (cred.note) {
+                const noteLine = document.createElement('div');
+                noteLine.style.cssText = `
+                    font-size: 11px; color: #996b00; background: #fffbf0;
+                    border-radius: 4px; padding: 2px 7px; margin-top: 3px;
+                    border-left: 2px solid #f0c060; line-height: 1.5;
+                `;
+                noteLine.textContent = cred.note;
+                item.appendChild(noteLine);
+            }
 
             item.addEventListener('mouseenter', () => { item.style.background = '#f5f7ff'; });
             item.addEventListener('mouseleave', () => { item.style.background = ''; });
@@ -891,6 +915,7 @@ class CredentialFiller extends BaseContentModule {
                 username,
                 password,
                 customFields,
+                note: '',
                 status: 'active',
                 disabledReason: ''
             });
