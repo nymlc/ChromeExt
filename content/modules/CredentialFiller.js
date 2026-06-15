@@ -21,6 +21,8 @@ class CredentialFiller extends BaseContentModule {
         this._anchorEl = null;
         this._iframeSource = null;
         this._parentMessageHandler = null;
+        this.credentialViewMode = 'tab'; // tab | list，默认 tab
+        this.activeTabIndex = 0;
     }
 
     get currentProject() { return this._currentProject; }
@@ -186,9 +188,10 @@ class CredentialFiller extends BaseContentModule {
      */
     async matchProject() {
         const { title: pageTitle } = await this._getTopContext();
-        const result = await chrome.storage.local.get(['credentialProjects', 'titleProjectBindings']);
+        const result = await chrome.storage.local.get(['credentialProjects', 'titleProjectBindings', 'credentialViewMode']);
         const projects = result.credentialProjects || [];
         const bindings = result.titleProjectBindings || {};
+        if (result.credentialViewMode) this.credentialViewMode = result.credentialViewMode;
 
         // 优先使用手动绑定的项目
         const boundId = bindings[pageTitle];
@@ -315,61 +318,58 @@ class CredentialFiller extends BaseContentModule {
             return 0;
         });
 
-        // 构建列表容器
-        const listContainer = document.createElement('div');
-        listContainer.style.cssText = `
-            flex: 1;
-            overflow-y: auto;
-            -webkit-overflow-scrolling: touch;
-        `;
+        // 计算 tab 分组
+        const namedGroups = [];
+        sorted.forEach(c => {
+            const ns = Array.isArray(c.note) ? c.note : (c.note ? [c.note] : []);
+            ns.forEach(n => { if (!namedGroups.includes(n)) namedGroups.push(n); });
+            if (ns.length === 0 && !namedGroups.includes('')) namedGroups.push('');
+        });
+        const hasUngroupedMain = sorted.some(c => {
+            const ns = Array.isArray(c.note) ? c.note : (c.note ? [c.note] : []);
+            return ns.length === 0;
+        });
+        if (hasUngroupedMain && !namedGroups.includes('')) namedGroups.push('');
+        const useTabMode = this.credentialViewMode === 'tab' && namedGroups.filter(n => n !== '').length > 0 && namedGroups.length > 1;
+        if (this.activeTabIndex >= namedGroups.length) this.activeTabIndex = 0;
 
-        sorted.forEach(cred => {
+        const buildCredItem = (cred, currentTabKey) => {
             const item = document.createElement('div');
             const isDisabled = cred.status === 'disabled';
             item.style.cssText = `
-        padding: 10px 14px;
-        cursor: pointer;
-        border-bottom: 1px solid #f5f5f5;
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-        opacity: ${isDisabled ? '0.5' : '1'};
-        transition: background 0.15s;
-      `;
-
+                padding: 10px 14px; cursor: pointer; border-bottom: 1px solid #f5f5f5;
+                display: flex; flex-direction: column; gap: 2px;
+                opacity: ${isDisabled ? '0.5' : '1'}; transition: background 0.15s;
+            `;
             const labelLine = document.createElement('div');
-            labelLine.style.cssText = `font-weight: 600; color: #333; display: flex; align-items: center; gap: 6px;`;
+            labelLine.style.cssText = 'font-weight: 600; color: #333; display: flex; align-items: center; gap: 6px;';
             labelLine.textContent = cred.label || '未命名';
             if (isDisabled) {
                 const badge = document.createElement('span');
                 badge.textContent = cred.disabledReason || '已失效';
-                badge.style.cssText = `
-          font-size: 11px; font-weight: 400; color: #f44336;
-          background: #ffebee; padding: 1px 6px; border-radius: 4px;
-        `;
+                badge.style.cssText = 'font-size: 11px; font-weight: 400; color: #f44336; background: #ffebee; padding: 1px 6px; border-radius: 4px;';
                 labelLine.appendChild(badge);
             }
-
             const userLine = document.createElement('div');
-            userLine.style.cssText = `color: #888; font-size: 12px;`;
+            userLine.style.cssText = 'color: #888; font-size: 12px;';
             userLine.textContent = cred.username;
-
             item.appendChild(labelLine);
             item.appendChild(userLine);
 
-            // 备注行（有内容才显示）
-            if (cred.note) {
-                const noteLine = document.createElement('div');
-                noteLine.style.cssText = `
-                    font-size: 11px; color: #996b00; background: #fffbf0;
-                    border-radius: 4px; padding: 2px 7px; margin-top: 3px;
-                    border-left: 2px solid #f0c060; line-height: 1.5;
-                `;
-                noteLine.textContent = cred.note;
-                item.appendChild(noteLine);
+            const notes = Array.isArray(cred.note) ? cred.note : (cred.note ? [cred.note] : []);
+            const tagsToShow = useTabMode ? notes.filter(n => n !== currentTabKey) : notes;
+            if (tagsToShow.length > 0) {
+                const noteRow = document.createElement('div');
+                noteRow.style.cssText = 'display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px;';
+                tagsToShow.forEach(tag => {
+                    const tagEl = document.createElement('span');
+                    tagEl.textContent = tag;
+                    tagEl.style.cssText = 'font-size: 11px; color: #996b00; background: #fffbf0; border-radius: 4px; padding: 1px 5px; border: 1px solid #f0c060; line-height: 1.5;';
+                    noteRow.appendChild(tagEl);
+                });
+                item.appendChild(noteRow);
             }
 
-            // 桌面端
             item.addEventListener('mouseenter', () => { item.style.background = '#f5f7ff'; });
             item.addEventListener('mouseleave', () => { item.style.background = ''; });
             item.addEventListener('mousedown', (e) => {
@@ -378,8 +378,6 @@ class CredentialFiller extends BaseContentModule {
                 this.fillCredential(cred);
                 this.hideCredentialPopup();
             });
-
-            // 移动端
             item.addEventListener('touchstart', (e) => {
                 e.preventDefault();
                 this._isSelecting = true;
@@ -390,9 +388,54 @@ class CredentialFiller extends BaseContentModule {
                 this.fillCredential(cred);
                 this.hideCredentialPopup();
             });
+            return item;
+        };
 
-            listContainer.appendChild(item);
-        });
+        // 构建列表容器
+        const listContainer = document.createElement('div');
+        listContainer.style.cssText = 'flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; display: flex; flex-direction: column;';
+
+        if (useTabMode) {
+            const tabBar = document.createElement('div');
+            tabBar.style.cssText = 'display: flex; overflow-x: auto; border-bottom: 1px solid #e8eaf6; background: #fafbff; flex-shrink: 0; scrollbar-width: none;';
+            const contentArea = document.createElement('div');
+            contentArea.style.cssText = 'overflow-y: auto; flex: 1;';
+
+            const renderTabContent = (idx) => {
+                contentArea.innerHTML = '';
+                const key = namedGroups[idx];
+                const filteredCreds = sorted.filter(c => {
+                    const ns = Array.isArray(c.note) ? c.note : (c.note ? [c.note] : []);
+                    return key === '' ? ns.length === 0 : ns.includes(key);
+                });
+                filteredCreds.forEach(cred => contentArea.appendChild(buildCredItem(cred, key)));
+            };
+
+            namedGroups.forEach((tabKey, idx) => {
+                const isActive = idx === this.activeTabIndex;
+                const tab = document.createElement('div');
+                tab.textContent = tabKey === '' ? '其他' : tabKey;
+                tab.style.cssText = `padding: 6px 12px; font-size: 11px; cursor: pointer; white-space: nowrap; border-bottom: 2px solid ${isActive ? '#667eea' : 'transparent'}; color: ${isActive ? '#667eea' : '#999'}; font-weight: ${isActive ? '600' : '400'}; transition: color 0.15s; background: transparent;`;
+                tab.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    this.activeTabIndex = idx;
+                    Array.from(tabBar.children).forEach((t, i) => {
+                        const a = i === idx;
+                        t.style.borderBottomColor = a ? '#667eea' : 'transparent';
+                        t.style.color = a ? '#667eea' : '#999';
+                        t.style.fontWeight = a ? '600' : '400';
+                    });
+                    renderTabContent(idx);
+                });
+                tabBar.appendChild(tab);
+            });
+
+            listContainer.appendChild(tabBar);
+            renderTabContent(this.activeTabIndex);
+            listContainer.appendChild(contentArea);
+        } else {
+            sorted.forEach(cred => listContainer.appendChild(buildCredItem(cred, null)));
+        }
 
         // 添加采集按钮
         const collectBtn = document.createElement('div');
@@ -501,50 +544,46 @@ class CredentialFiller extends BaseContentModule {
         this._anchorEl = anchor;
 
         // 构建凭证列表
-        const listContainer = document.createElement('div');
-        listContainer.style.cssText = `flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;`;
+        const iframeTabGroups = [];
+        credentials.forEach(c => {
+            const ns = Array.isArray(c.note) ? c.note : (c.note ? [c.note] : []);
+            ns.forEach(n => { if (!iframeTabGroups.includes(n)) iframeTabGroups.push(n); });
+            if (ns.length === 0 && !iframeTabGroups.includes('')) iframeTabGroups.push('');
+        });
+        const iframeUseTab = this.credentialViewMode === 'tab' && iframeTabGroups.filter(n => n !== '').length > 0 && iframeTabGroups.length > 1;
+        if (this.activeTabIndex >= iframeTabGroups.length) this.activeTabIndex = 0;
 
-        credentials.forEach(cred => {
+        const buildIframeItem = (cred, currentTabKey) => {
             const item = document.createElement('div');
             const isDisabled = cred.status === 'disabled';
-            item.style.cssText = `
-                padding: 10px 14px;
-                cursor: pointer;
-                border-bottom: 1px solid #f5f5f5;
-                display: flex;
-                flex-direction: column;
-                gap: 2px;
-                opacity: ${isDisabled ? '0.5' : '1'};
-                transition: background 0.15s;
-            `;
-
+            item.style.cssText = `padding: 10px 14px; cursor: pointer; border-bottom: 1px solid #f5f5f5; display: flex; flex-direction: column; gap: 2px; opacity: ${isDisabled ? '0.5' : '1'}; transition: background 0.15s;`;
             const labelLine = document.createElement('div');
-            labelLine.style.cssText = `font-weight: 600; color: #333; display: flex; align-items: center; gap: 6px;`;
+            labelLine.style.cssText = 'font-weight: 600; color: #333; display: flex; align-items: center; gap: 6px;';
             labelLine.textContent = cred.label || '未命名';
             if (isDisabled) {
                 const badge = document.createElement('span');
                 badge.textContent = cred.disabledReason || '已失效';
-                badge.style.cssText = `font-size: 11px; font-weight: 400; color: #f44336; background: #ffebee; padding: 1px 6px; border-radius: 4px;`;
+                badge.style.cssText = 'font-size: 11px; font-weight: 400; color: #f44336; background: #ffebee; padding: 1px 6px; border-radius: 4px;';
                 labelLine.appendChild(badge);
             }
-
             const userLine = document.createElement('div');
-            userLine.style.cssText = `color: #888; font-size: 12px;`;
+            userLine.style.cssText = 'color: #888; font-size: 12px;';
             userLine.textContent = cred.username;
-
             item.appendChild(labelLine);
             item.appendChild(userLine);
 
-            // 备注行（有内容才显示）
-            if (cred.note) {
-                const noteLine = document.createElement('div');
-                noteLine.style.cssText = `
-                    font-size: 11px; color: #996b00; background: #fffbf0;
-                    border-radius: 4px; padding: 2px 7px; margin-top: 3px;
-                    border-left: 2px solid #f0c060; line-height: 1.5;
-                `;
-                noteLine.textContent = cred.note;
-                item.appendChild(noteLine);
+            const notes = Array.isArray(cred.note) ? cred.note : (cred.note ? [cred.note] : []);
+            const tagsToShow = iframeUseTab ? notes.filter(n => n !== currentTabKey) : notes;
+            if (tagsToShow.length > 0) {
+                const noteRow = document.createElement('div');
+                noteRow.style.cssText = 'display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px;';
+                tagsToShow.forEach(tag => {
+                    const tagEl = document.createElement('span');
+                    tagEl.textContent = tag;
+                    tagEl.style.cssText = 'font-size: 11px; color: #996b00; background: #fffbf0; border-radius: 4px; padding: 1px 5px; border: 1px solid #f0c060; line-height: 1.5;';
+                    noteRow.appendChild(tagEl);
+                });
+                item.appendChild(noteRow);
             }
 
             item.addEventListener('mouseenter', () => { item.style.background = '#f5f7ff'; });
@@ -559,9 +598,52 @@ class CredentialFiller extends BaseContentModule {
                 this._iframeSource?.postMessage(JSON.stringify({ type: 'CREDENTIAL_FILLER_FILL', credential: cred }), '*');
                 this.hideCredentialPopup();
             });
+            return item;
+        };
 
-            listContainer.appendChild(item);
-        });
+        const listContainer = document.createElement('div');
+        listContainer.style.cssText = 'flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; display: flex; flex-direction: column;';
+
+        if (iframeUseTab) {
+            const tabBar = document.createElement('div');
+            tabBar.style.cssText = 'display: flex; overflow-x: auto; border-bottom: 1px solid #e8eaf6; background: #fafbff; flex-shrink: 0; scrollbar-width: none;';
+            const contentArea = document.createElement('div');
+            contentArea.style.cssText = 'overflow-y: auto; flex: 1;';
+
+            const renderIframeTabContent = (idx) => {
+                contentArea.innerHTML = '';
+                const key = iframeTabGroups[idx];
+                credentials.filter(c => {
+                    const ns = Array.isArray(c.note) ? c.note : (c.note ? [c.note] : []);
+                    return key === '' ? ns.length === 0 : ns.includes(key);
+                }).forEach(cred => contentArea.appendChild(buildIframeItem(cred, key)));
+            };
+
+            iframeTabGroups.forEach((tabKey, idx) => {
+                const isActive = idx === this.activeTabIndex;
+                const tab = document.createElement('div');
+                tab.textContent = tabKey === '' ? '其他' : tabKey;
+                tab.style.cssText = `padding: 6px 12px; font-size: 11px; cursor: pointer; white-space: nowrap; border-bottom: 2px solid ${isActive ? '#667eea' : 'transparent'}; color: ${isActive ? '#667eea' : '#999'}; font-weight: ${isActive ? '600' : '400'}; transition: color 0.15s; background: transparent;`;
+                tab.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    this.activeTabIndex = idx;
+                    Array.from(tabBar.children).forEach((t, i) => {
+                        const a = i === idx;
+                        t.style.borderBottomColor = a ? '#667eea' : 'transparent';
+                        t.style.color = a ? '#667eea' : '#999';
+                        t.style.fontWeight = a ? '600' : '400';
+                    });
+                    renderIframeTabContent(idx);
+                });
+                tabBar.appendChild(tab);
+            });
+
+            listContainer.appendChild(tabBar);
+            renderIframeTabContent(this.activeTabIndex);
+            listContainer.appendChild(contentArea);
+        } else {
+            credentials.forEach(cred => listContainer.appendChild(buildIframeItem(cred, null)));
+        }
 
         // 采集按钮
         const collectBtn = document.createElement('div');
@@ -915,7 +997,7 @@ class CredentialFiller extends BaseContentModule {
                 username,
                 password,
                 customFields,
-                note: '',
+                note: [],
                 status: 'active',
                 disabledReason: ''
             });

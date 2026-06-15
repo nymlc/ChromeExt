@@ -13,12 +13,20 @@ class CredentialManager extends BaseModule {
         this.currentProject = null;
         this.editingCredential = null;
         this.pageTitle = '';
+        this.credentialViewMode = 'tab'; // tab | list，默认 tab
+        this.activeTabIndex = 0;         // 当前激活的 Tab 索引
     }
 
     async init() {
         await this.initModuleStatus();
         await this.loadProjects();
         await this.getPageTitle();
+
+        // 读取视图偏好
+        const prefResult = await chrome.storage.local.get(['credentialViewMode']);
+        if (prefResult.credentialViewMode) {
+            this.credentialViewMode = prefResult.credentialViewMode;
+        }
 
         // 绑定模块开关事件
         this.bindModuleSwitch();
@@ -61,7 +69,18 @@ class CredentialManager extends BaseModule {
 
     async loadProjects() {
         const result = await chrome.storage.local.get(['credentialProjects']);
-        this.projects = result.credentialProjects || [];
+        const projects = result.credentialProjects || [];
+        // 存量迁移：note string → string[]
+        projects.forEach(p => {
+            p.credentials.forEach(c => {
+                if (typeof c.note === 'string') {
+                    c.note = c.note ? [c.note] : [];
+                } else if (!Array.isArray(c.note)) {
+                    c.note = [];
+                }
+            });
+        });
+        this.projects = projects;
     }
 
     async saveProjects() {
@@ -349,6 +368,44 @@ class CredentialManager extends BaseModule {
             container.appendChild(switchRow);
         }
 
+        // 视图切换行（仅在凭证数 > 0 且有多于 1 个分组时显示）
+        const allNotes = [];
+        project.credentials.forEach(c => {
+            const ns = Array.isArray(c.note) ? c.note : (c.note ? [c.note] : []);
+            ns.forEach(n => { if (!allNotes.includes(n)) allNotes.push(n); });
+            if (ns.length === 0 && !allNotes.includes('')) allNotes.push('');
+        });
+        const tabGroups = allNotes.filter(n => n !== '');
+        const hasUngrouped = project.credentials.some(c => {
+            const ns = Array.isArray(c.note) ? c.note : (c.note ? [c.note] : []);
+            return ns.length === 0;
+        });
+        if (hasUngrouped) tabGroups.push('');
+        const useTabMode = this.credentialViewMode === 'tab' && tabGroups.length > 1;
+
+        if (project.credentials.length > 0) {
+            const viewToggleRow = document.createElement('div');
+            viewToggleRow.style.cssText = 'display: flex; justify-content: flex-end; margin-bottom: 6px;';
+            const toggleBtn = document.createElement('button');
+            const isTab = this.credentialViewMode === 'tab';
+            toggleBtn.textContent = isTab ? '≡ 列表' : '⊟ 标签';
+            toggleBtn.title = isTab ? '切换为列表模式' : '切换为标签模式';
+            toggleBtn.style.cssText = `
+                font-size: 11px; padding: 2px 8px; border: 1px solid #d0d0e8; border-radius: 4px;
+                background: #f0f1fa; color: #667eea; cursor: pointer; transition: background 0.15s;
+            `;
+            toggleBtn.addEventListener('mouseenter', () => { toggleBtn.style.background = '#e4e6f8'; });
+            toggleBtn.addEventListener('mouseleave', () => { toggleBtn.style.background = '#f0f1fa'; });
+            toggleBtn.addEventListener('click', async () => {
+                this.credentialViewMode = isTab ? 'list' : 'tab';
+                this.activeTabIndex = 0;
+                await chrome.storage.local.set({ credentialViewMode: this.credentialViewMode });
+                this.render();
+            });
+            viewToggleRow.appendChild(toggleBtn);
+            container.appendChild(viewToggleRow);
+        }
+
         // 凭证列表：active 在前，disabled 在后
         const sorted = [...project.credentials].sort((a, b) => {
             if (a.status === 'active' && b.status !== 'active') return -1;
@@ -363,19 +420,54 @@ class CredentialManager extends BaseModule {
             container.appendChild(empty);
         }
 
-        const list = document.createElement('div');
-        list.className = 'scrollable-area';
-        list.style.cssText = 'display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px;';
+        const createSVGIcon = (type, title) => {
+            const svgNS = "http://www.w3.org/2000/svg";
+            const svg = document.createElementNS(svgNS, "svg");
+            svg.setAttribute("viewBox", "0 0 24 24");
+            svg.setAttribute("fill", "none");
+            svg.setAttribute("stroke", "currentColor");
+            svg.setAttribute("stroke-width", "2");
+            svg.setAttribute("stroke-linecap", "round");
+            svg.setAttribute("stroke-linejoin", "round");
+            svg.style.cssText = 'width: 16px; height: 16px; opacity: 0.6; transition: all 0.15s;';
+            let innerHTML = '';
+            if (type === 'fill') {
+                innerHTML = '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/>';
+            } else if (type === 'disable') {
+                innerHTML = '<path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" y1="2" x2="22" y2="22"/>';
+            } else if (type === 'enable') {
+                innerHTML = '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>';
+            } else if (type === 'edit') {
+                innerHTML = '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>';
+            } else if (type === 'delete') {
+                innerHTML = '<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>';
+            }
+            svg.innerHTML = innerHTML;
+            const wrapper = document.createElement('div');
+            wrapper.title = title;
+            wrapper.style.cssText = 'cursor: pointer; display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 6px; transition: background 0.15s;';
+            wrapper.appendChild(svg);
+            wrapper.addEventListener('mouseenter', () => {
+                svg.style.opacity = '1';
+                wrapper.style.background = type === 'delete' ? '#ffebee' : '#eef0ff';
+                svg.style.color = type === 'delete' ? '#f44336' : '#667eea';
+            });
+            wrapper.addEventListener('mouseleave', () => {
+                svg.style.opacity = '0.6';
+                wrapper.style.background = 'transparent';
+                svg.style.color = 'inherit';
+            });
+            return wrapper;
+        };
 
-        sorted.forEach(cred => {
+        const buildCredCard = (cred) => {
             const isDisabled = cred.status === 'disabled';
             const card = document.createElement('div');
             card.style.cssText = `
-        background: ${isDisabled ? '#fafafa' : '#f8f9ff'}; border-radius: 8px; padding: 10px 12px;
-        opacity: ${isDisabled ? '0.6' : '1'}; border-left: 3px solid ${isDisabled ? '#ccc' : '#667eea'};
-      `;
+                background: ${isDisabled ? '#fafafa' : '#f8f9ff'}; border-radius: 8px; padding: 10px 12px;
+                opacity: ${isDisabled ? '0.6' : '1'}; border-left: 3px solid ${isDisabled ? '#ccc' : '#667eea'};
+            `;
 
-            // 第一行：label + 操作按钮
             const row1 = document.createElement('div');
             row1.style.cssText = 'display: flex; justify-content: space-between; align-items: center;';
 
@@ -392,60 +484,12 @@ class CredentialManager extends BaseModule {
             const actions = document.createElement('div');
             actions.style.cssText = 'display: flex; gap: 6px; align-items: center;';
 
-            const createSVGIcon = (type, title) => {
-                const svgNS = "http://www.w3.org/2000/svg";
-                const svg = document.createElementNS(svgNS, "svg");
-                svg.setAttribute("viewBox", "0 0 24 24");
-                svg.setAttribute("fill", "none");
-                svg.setAttribute("stroke", "currentColor");
-                svg.setAttribute("stroke-width", "2");
-                svg.setAttribute("stroke-linecap", "round");
-                svg.setAttribute("stroke-linejoin", "round");
-                svg.style.cssText = 'width: 16px; height: 16px; opacity: 0.6; transition: all 0.15s;';
-                
-                let innerHTML = '';
-                if (type === 'fill') {
-                    innerHTML = '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/>';
-                } else if (type === 'disable') {
-                    innerHTML = '<path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" y1="2" x2="22" y2="22"/>';
-                } else if (type === 'enable') {
-                    innerHTML = '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>';
-                } else if (type === 'edit') {
-                    innerHTML = '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>';
-                } else if (type === 'delete') {
-                    innerHTML = '<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>';
-                }
-                svg.innerHTML = innerHTML;
-                
-                const wrapper = document.createElement('div');
-                wrapper.title = title;
-                wrapper.style.cssText = 'cursor: pointer; display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 6px; transition: background 0.15s;';
-                wrapper.appendChild(svg);
-                
-                wrapper.addEventListener('mouseenter', () => { 
-                    svg.style.opacity = '1'; 
-                    wrapper.style.background = type === 'delete' ? '#ffebee' : '#eef0ff';
-                    if(type === 'delete') svg.style.color = '#f44336';
-                    else svg.style.color = '#667eea';
-                });
-                wrapper.addEventListener('mouseleave', () => { 
-                    svg.style.opacity = '0.6'; 
-                    wrapper.style.background = 'transparent';
-                    svg.style.color = 'inherit';
-                });
-                
-                return wrapper;
-            };
-
-            // 填充按钮
             const fillBtn = createSVGIcon('fill', '填充到页面');
             fillBtn.addEventListener('click', () => this.fillCredential(cred));
 
-            // 标记失效/恢复
             const toggleBtn = createSVGIcon(isDisabled ? 'enable' : 'disable', isDisabled ? '恢复正常' : '标记失效');
             toggleBtn.addEventListener('click', () => this.toggleCredentialStatus(project, cred));
 
-            // 编辑
             const editBtn = createSVGIcon('edit', '编辑');
             editBtn.addEventListener('click', () => {
                 this.editingCredential = cred;
@@ -453,7 +497,6 @@ class CredentialManager extends BaseModule {
                 this.render();
             });
 
-            // 删除
             const delBtn = createSVGIcon('delete', '删除');
             delBtn.addEventListener('click', () => this.deleteCredential(project, cred.id));
 
@@ -461,33 +504,94 @@ class CredentialManager extends BaseModule {
             actions.appendChild(toggleBtn);
             actions.appendChild(editBtn);
             actions.appendChild(delBtn);
-
             row1.appendChild(labelEl);
             row1.appendChild(actions);
             card.appendChild(row1);
 
-            // 第二行：用户名
             const row2 = document.createElement('div');
             row2.style.cssText = 'font-size: 12px; color: #888; margin-top: 4px;';
             row2.textContent = cred.username;
             card.appendChild(row2);
 
-            // 第三行：备注（有内容才显示）
-            if (cred.note) {
+            // 列表模式下仍显示 note tags；tab 模式下不重复显示当前 tab 对应的 tag，其余 tag 仍展示
+            const notes = Array.isArray(cred.note) ? cred.note : (cred.note ? [cred.note] : []);
+            const tagsToShow = useTabMode
+                ? notes.filter(n => n !== tabGroups[this.activeTabIndex])
+                : notes;
+            if (tagsToShow.length > 0) {
                 const noteRow = document.createElement('div');
-                noteRow.style.cssText = `
-                    font-size: 11px; color: #996b00; background: #fffbf0;
-                    border-radius: 4px; padding: 3px 7px; margin-top: 5px;
-                    border-left: 2px solid #f0c060; line-height: 1.5;
-                `;
-                noteRow.textContent = cred.note;
+                noteRow.style.cssText = 'display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px;';
+                tagsToShow.forEach(tag => {
+                    const tagEl = document.createElement('span');
+                    tagEl.textContent = tag;
+                    tagEl.style.cssText = `
+                        font-size: 11px; color: #996b00; background: #fffbf0;
+                        border-radius: 4px; padding: 1px 6px;
+                        border: 1px solid #f0c060; line-height: 1.5;
+                    `;
+                    noteRow.appendChild(tagEl);
+                });
                 card.appendChild(noteRow);
             }
+            return card;
+        };
 
-            list.appendChild(card);
-        });
+        if (useTabMode) {
+            // 越界保护
+            if (this.activeTabIndex >= tabGroups.length) this.activeTabIndex = 0;
 
-        container.appendChild(list);
+            // Tab 栏
+            const tabBar = document.createElement('div');
+            tabBar.style.cssText = `
+                display: flex; gap: 0; overflow-x: auto; border-bottom: 2px solid #e8eaf6;
+                margin-bottom: 8px; scrollbar-width: none; flex-shrink: 0;
+            `;
+            tabBar.style.setProperty('scrollbar-width', 'none');
+
+            tabGroups.forEach((tabKey, idx) => {
+                const tabLabel = tabKey === '' ? '其他' : tabKey;
+                const tab = document.createElement('div');
+                const isActive = idx === this.activeTabIndex;
+                tab.textContent = tabLabel;
+                tab.style.cssText = `
+                    padding: 5px 12px; font-size: 12px; cursor: pointer; white-space: nowrap;
+                    border-bottom: 2px solid ${isActive ? '#667eea' : 'transparent'};
+                    color: ${isActive ? '#667eea' : '#888'}; font-weight: ${isActive ? '600' : '400'};
+                    margin-bottom: -2px; transition: color 0.15s;
+                `;
+                tab.addEventListener('click', () => {
+                    this.activeTabIndex = idx;
+                    this.render();
+                });
+                tab.addEventListener('mouseenter', () => {
+                    if (!isActive) tab.style.color = '#555';
+                });
+                tab.addEventListener('mouseleave', () => {
+                    if (!isActive) tab.style.color = '#888';
+                });
+                tabBar.appendChild(tab);
+            });
+            container.appendChild(tabBar);
+
+            // 当前 Tab 的凭证列表
+            const currentKey = tabGroups[this.activeTabIndex];
+            const tabCreds = sorted.filter(c => {
+                const ns = Array.isArray(c.note) ? c.note : (c.note ? [c.note] : []);
+                return currentKey === '' ? ns.length === 0 : ns.includes(currentKey);
+            });
+
+            const list = document.createElement('div');
+            list.className = 'scrollable-area';
+            list.style.cssText = 'display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px;';
+            tabCreds.forEach(cred => list.appendChild(buildCredCard(cred)));
+            container.appendChild(list);
+        } else {
+            const list = document.createElement('div');
+            list.className = 'scrollable-area';
+            list.style.cssText = 'display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px;';
+            sorted.forEach(cred => list.appendChild(buildCredCard(cred)));
+            container.appendChild(list);
+        }
 
         // 操作按钮区
         const btnGroup = document.createElement('div');
@@ -519,7 +623,7 @@ class CredentialManager extends BaseModule {
      */
     renderCredentialEdit(container) {
         const isEdit = !!this.editingCredential;
-        const cred = this.editingCredential || { label: '', username: '', password: '', note: '', customFields: [], status: 'active', disabledReason: '' };
+        const cred = this.editingCredential || { label: '', username: '', password: '', note: [], customFields: [], status: 'active', disabledReason: '' };
 
         // 返回按钮
         const header = document.createElement('div');
@@ -618,7 +722,7 @@ class CredentialManager extends BaseModule {
                 cred.username = username;
                 cred.password = password;
                 cred.customFields = customFields;
-                cred.note = noteWrapper.textarea.value.trim();
+                cred.note = noteWrapper.getTags();
             } else {
                 // 用户名重复则覆盖
                 const existingIdx = this.currentProject.credentials.findIndex(c => c.username === username);
@@ -628,7 +732,7 @@ class CredentialManager extends BaseModule {
                     existing.username = username;
                     existing.password = password;
                     existing.customFields = customFields;
-                    existing.note = noteWrapper.textarea.value.trim();
+                    existing.note = noteWrapper.getTags();
                     Toast.success('同名用户已存在，已覆盖更新');
                 } else {
                     this.currentProject.credentials.push({
@@ -637,7 +741,7 @@ class CredentialManager extends BaseModule {
                         username,
                         password,
                         customFields,
-                        note: noteWrapper.textarea.value.trim(),
+                        note: noteWrapper.getTags(),
                         status: 'active',
                         disabledReason: ''
                     });
@@ -684,29 +788,150 @@ class CredentialManager extends BaseModule {
     }
 
     /**
-     * 创建备注 textarea 组件
+     * 创建备注 tag 输入组件
+     * 返回 { wrapper, getTags }，getTags() 返回当前 tag 数组
      */
-    createNoteInput(value) {
+    createNoteInput(initialTags) {
+        const tags = Array.isArray(initialTags) ? [...initialTags] : (initialTags ? [initialTags] : []);
         const wrapper = document.createElement('div');
+
         const label = document.createElement('div');
         label.textContent = '备注';
         label.style.cssText = 'font-size: 12px; color: #666; margin-bottom: 3px;';
 
-        const textarea = document.createElement('textarea');
-        textarea.value = value || '';
-        textarea.placeholder = '可选，填写补充说明，如：测试环境、有效期至2025年底等';
-        textarea.rows = 2;
-        textarea.style.cssText = `
-            width: 100%; padding: 8px 10px; border: 1px solid #e0e0e0; border-radius: 6px;
-            font-size: 12px; outline: none; transition: border-color 0.2s; box-sizing: border-box;
-            resize: none; line-height: 1.5; color: #555; font-family: inherit;
+        // 获取当前项目下已有的所有 tag（候选提示）
+        const allTags = new Set();
+        if (this.currentProject) {
+            this.currentProject.credentials.forEach(c => {
+                const notes = Array.isArray(c.note) ? c.note : (c.note ? [c.note] : []);
+                notes.forEach(t => allTags.add(t));
+            });
+        }
+
+        const tagContainer = document.createElement('div');
+        tagContainer.style.cssText = `
+            min-height: 36px; padding: 4px 8px; border: 1px solid #e0e0e0; border-radius: 6px;
+            display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
+            cursor: text; transition: border-color 0.2s; background: #fff;
         `;
-        textarea.addEventListener('focus', () => { textarea.style.borderColor = '#667eea'; });
-        textarea.addEventListener('blur', () => { textarea.style.borderColor = '#e0e0e0'; });
+        tagContainer.addEventListener('click', () => input.focus());
+
+        const renderTags = () => {
+            // 清掉旧 tag 元素（保留 input）
+            Array.from(tagContainer.children).forEach(el => {
+                if (el !== input && el !== suggestBox) tagContainer.removeChild(el);
+            });
+            tags.forEach((tag, idx) => {
+                const chip = document.createElement('span');
+                chip.style.cssText = `
+                    display: inline-flex; align-items: center; gap: 3px;
+                    font-size: 11px; color: #996b00; background: #fffbf0;
+                    border: 1px solid #f0c060; border-radius: 4px; padding: 1px 5px;
+                    line-height: 1.6;
+                `;
+                const chipText = document.createElement('span');
+                chipText.textContent = tag;
+                const chipDel = document.createElement('span');
+                chipDel.textContent = '×';
+                chipDel.style.cssText = 'cursor: pointer; font-size: 13px; color: #c0a000; margin-left: 1px;';
+                chipDel.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    tags.splice(idx, 1);
+                    renderTags();
+                });
+                chip.appendChild(chipText);
+                chip.appendChild(chipDel);
+                tagContainer.insertBefore(chip, input);
+            });
+        };
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.placeholder = tags.length === 0 ? '输入备注回车添加，如：测试、线上' : '';
+        input.style.cssText = `
+            border: none; outline: none; font-size: 12px; flex: 1; min-width: 80px;
+            background: transparent; color: #555; font-family: inherit; padding: 2px 0;
+        `;
+
+        // 候选提示下拉
+        const suggestBox = document.createElement('div');
+        suggestBox.style.cssText = `
+            display: none; position: absolute; background: #fff; border: 1px solid #e0e0e0;
+            border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); z-index: 9999;
+            max-height: 120px; overflow-y: auto; min-width: 120px;
+        `;
+
+        const wrapPos = document.createElement('div');
+        wrapPos.style.cssText = 'position: relative;';
+        wrapPos.appendChild(tagContainer);
+        wrapPos.appendChild(suggestBox);
+
+        const showSuggestions = (val) => {
+            const query = val.trim().toLowerCase();
+            const candidates = [...allTags].filter(t => !tags.includes(t) && (!query || t.toLowerCase().includes(query)));
+            suggestBox.innerHTML = '';
+            if (candidates.length === 0) { suggestBox.style.display = 'none'; return; }
+            candidates.forEach(t => {
+                const opt = document.createElement('div');
+                opt.textContent = t;
+                opt.style.cssText = 'padding: 6px 10px; font-size: 12px; cursor: pointer; color: #333;';
+                opt.addEventListener('mouseenter', () => { opt.style.background = '#f5f7ff'; });
+                opt.addEventListener('mouseleave', () => { opt.style.background = ''; });
+                opt.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    if (!tags.includes(t)) tags.push(t);
+                    input.value = '';
+                    input.placeholder = '';
+                    suggestBox.style.display = 'none';
+                    renderTags();
+                    input.focus();
+                });
+                suggestBox.appendChild(opt);
+            });
+            suggestBox.style.display = 'block';
+        };
+
+        input.addEventListener('focus', () => {
+            tagContainer.style.borderColor = '#667eea';
+            showSuggestions(input.value);
+        });
+        input.addEventListener('blur', () => {
+            tagContainer.style.borderColor = '#e0e0e0';
+            setTimeout(() => { suggestBox.style.display = 'none'; }, 150);
+            // blur 时若有未提交的文字，自动添加为 tag
+            const val = input.value.trim();
+            if (val && !tags.includes(val)) {
+                tags.push(val);
+                input.value = '';
+                input.placeholder = '';
+                renderTags();
+            }
+        });
+        input.addEventListener('input', () => showSuggestions(input.value));
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ',') {
+                e.preventDefault();
+                const val = input.value.trim().replace(/,$/, '');
+                if (val && !tags.includes(val)) {
+                    tags.push(val);
+                    allTags.add(val);
+                    input.value = '';
+                    input.placeholder = '';
+                    suggestBox.style.display = 'none';
+                    renderTags();
+                }
+            } else if (e.key === 'Backspace' && input.value === '' && tags.length > 0) {
+                tags.pop();
+                renderTags();
+            }
+        });
+
+        tagContainer.appendChild(input);
+        renderTags();
 
         wrapper.appendChild(label);
-        wrapper.appendChild(textarea);
-        return { wrapper, textarea };
+        wrapper.appendChild(wrapPos);
+        return { wrapper, getTags: () => [...tags] };
     }
 
     /**
@@ -886,7 +1111,7 @@ class CredentialManager extends BaseModule {
                 username,
                 password: passwordField ? passwordField.value : '',
                 customFields,
-                note: '',
+                note: [],
                 status: 'active',
                 disabledReason: ''
             };
@@ -897,7 +1122,7 @@ class CredentialManager extends BaseModule {
                 newCred.id = project.credentials[existingIdx].id;
                 newCred.status = project.credentials[existingIdx].status;
                 newCred.disabledReason = project.credentials[existingIdx].disabledReason;
-                newCred.note = project.credentials[existingIdx].note || '';
+                newCred.note = project.credentials[existingIdx].note || [];
                 project.credentials[existingIdx] = newCred;
                 Toast.success('凭证已覆盖更新');
             } else {
