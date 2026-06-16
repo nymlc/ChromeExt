@@ -15,7 +15,9 @@ class PopupManager {
     this.modules = {
       passwordToggle: null,
       credentialManager: null,
+      masterGoManager: null,
     };
+    this.activeSubpageModule = null; // 'credential' | 'masterGoNav'
   }
 
   async init() {
@@ -46,6 +48,9 @@ class PopupManager {
     this.modules.credentialManager = new CredentialManager();
     await this.modules.credentialManager.init();
 
+    this.modules.masterGoManager = new MasterGoManager();
+    await this.modules.masterGoManager.init();
+
     // 恢复模块顺序并初始化拖拽
     await this.restoreModuleOrder();
     this.initDragSort();
@@ -58,9 +63,16 @@ class PopupManager {
     const credentialEntry = document.getElementById('credentialModuleEntry');
     if (credentialEntry) {
       credentialEntry.addEventListener('click', (e) => {
-        // 防止点击开关或拖拽手柄时触发跳转
         if (e.target.closest('.switch') || e.target.closest('.drag-handle')) return;
-        this.openSubpage('凭证管理');
+        this.openSubpage('凭证管理', 'credential');
+      });
+    }
+
+    const masterGoEntry = document.getElementById('masterGoNavModuleEntry');
+    if (masterGoEntry) {
+      masterGoEntry.addEventListener('click', (e) => {
+        if (e.target.closest('.switch') || e.target.closest('.drag-handle')) return;
+        this.openSubpage('MasterGo 导航', 'masterGoNav');
       });
     }
 
@@ -70,7 +82,13 @@ class PopupManager {
     }
   }
 
-  openSubpage(title) {
+  openSubpage(title, moduleId) {
+    this.activeSubpageModule = moduleId;
+
+    // 切换可见的 content 容器
+    document.getElementById('credentialModuleContent').style.display = moduleId === 'credential' ? '' : 'none';
+    document.getElementById('masterGoNavModuleContent').style.display = moduleId === 'masterGoNav' ? '' : 'none';
+
     const titleEl = document.getElementById('subpageTitle');
     if (titleEl) titleEl.textContent = title;
 
@@ -102,7 +120,10 @@ class PopupManager {
     const wrapper = document.getElementById('appWrapper');
     const subpage = document.getElementById('viewSubpage');
     const header = document.querySelector('.subpage-header');
-    const content = document.getElementById('credentialModuleContent');
+    const contentId = this.activeSubpageModule === 'masterGoNav'
+      ? 'masterGoNavModuleContent'
+      : 'credentialModuleContent';
+    const content = document.getElementById(contentId);
     if (!wrapper || !content || !subpage) return;
 
     const measure = () => {
@@ -327,6 +348,10 @@ class PopupManager {
       password: {
         name: '密码显示',
         keys: ['passwordModuleEnabled', 'disabledPasswordSites']
+      },
+      masterGoNav: {
+        name: 'MasterGo 导航',
+        keys: ['mastergoNavNodes', 'mastergoNavCollapsed', 'masterGoNavModuleEnabled', 'mastergoNavSide']
       },
       global: {
         name: '全局设置',
