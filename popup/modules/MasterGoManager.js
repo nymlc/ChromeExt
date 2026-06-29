@@ -29,8 +29,9 @@ class MasterGoManager extends BaseModule {
 
   async _load() {
     const result = await chrome.storage.local.get([
-      'mastergoNavNodes', 'mastergoNavGroups',
+      'mastergoNavNodes', 'mastergoNavGroups', 'mastergoNavPoolCapacity',
     ]);
+    this.poolCapacity = result.mastergoNavPoolCapacity ?? 3;
     if (result.mastergoNavNodes) {
       this.nodes = result.mastergoNavNodes;
     } else if (result.mastergoNavGroups) {
@@ -141,9 +142,9 @@ class MasterGoManager extends BaseModule {
   _renderTree(c) {
     c.appendChild(this._breadcrumb());
 
-    // 根目录顶部显示 iframe 池大小配置
+    // 根目录顶部：Tab 池大小配置
     if (this.path.length === 1) {
-      // 根目录暂无额外配置项
+      c.appendChild(this._renderPoolCapacity());
     }
 
     const isRoot = this.path.length === 1;
@@ -182,6 +183,53 @@ class MasterGoManager extends BaseModule {
     c.appendChild(list);
 
     this._initDragSort(list, children);
+  }
+
+  _renderPoolCapacity() {
+    const wrap = document.createElement('div');
+    wrap.style.cssText = `
+      display:flex;align-items:center;justify-content:space-between;
+      padding:8px 10px;margin-bottom:10px;
+      background:var(--card-bg);border:1px solid var(--border-color);border-radius:8px;
+      font-size:13px;
+    `;
+
+    const label = document.createElement('span');
+    label.style.cssText = 'color:var(--text-main);';
+    label.textContent = 'Tab 池大小';
+
+    const right = document.createElement('div');
+    right.style.cssText = 'display:flex;align-items:center;gap:6px;';
+
+    const hint = document.createElement('span');
+    hint.style.cssText = 'font-size:11px;color:#999;';
+    hint.textContent = '个标签页';
+
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.min = '1';
+    input.max = '10';
+    input.value = this.poolCapacity;
+    input.style.cssText = `
+      width:48px;padding:4px 6px;text-align:center;
+      border:1px solid var(--border-color);border-radius:6px;
+      font-size:13px;color:var(--text-main);background:var(--card-bg);outline:none;
+    `;
+    input.addEventListener('focus', () => input.style.borderColor = 'var(--accent-color)');
+    input.addEventListener('blur',  () => input.style.borderColor = 'var(--border-color)');
+    input.addEventListener('change', async () => {
+      const v = Math.min(10, Math.max(1, parseInt(input.value) || 3));
+      input.value = v;
+      this.poolCapacity = v;
+      await chrome.storage.local.set({ mastergoNavPoolCapacity: v });
+      Toast.success('已保存', 1200);
+    });
+
+    right.appendChild(input);
+    right.appendChild(hint);
+    wrap.appendChild(label);
+    wrap.appendChild(right);
+    return wrap;
   }
 
   _breadcrumb() {

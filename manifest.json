@@ -6,7 +6,9 @@
   "permissions": [
     "activeTab",
     "scripting",
-    "storage"
+    "storage",
+    "tabs",
+    "tabGroups"
   ],
   "commands": {
     "toggle-password": {
@@ -61,12 +63,11 @@
       ],
       "js": [
         "shared/Toast.js",
-        "shared/LRUCache.js",
-        "shared/IframePool.js",
+        "shared/TabPool.js",
         "content/modules/BaseModule.js",
         "content/modules/MasterGoNav.js"
       ],
-      "run_at": "document_start",
+      "run_at": "document_idle",
       "all_frames": false
     }
   ],
