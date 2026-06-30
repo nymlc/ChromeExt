@@ -103,8 +103,8 @@ class MasterGoNav extends BaseContentModule {
   async init() {
     const enabled = await this.checkModuleEnabled();
     if (!enabled) return;
-    const validPaths = ['/file/', '/prototyping/', '/design/'];
-    if (!validPaths.some(p => location.pathname.startsWith(p))) return;
+    const inValidPaths = ['/files/'];
+    if (inValidPaths.some(p => location.pathname.startsWith(p))) return;
     await this.load();
     await this._waitForBody();
     await this._initPool();
