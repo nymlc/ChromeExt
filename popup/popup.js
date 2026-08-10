@@ -51,6 +51,9 @@ class PopupManager {
     this.modules.masterGoManager = new MasterGoManager();
     await this.modules.masterGoManager.init();
 
+    this.modules.timestampFormatter = new TimestampFormatter();
+    await this.modules.timestampFormatter.init();
+
     // 恢复模块顺序并初始化拖拽
     await this.restoreModuleOrder();
     this.initDragSort();
@@ -352,6 +355,10 @@ class PopupManager {
       masterGoNav: {
         name: 'MasterGo 导航',
         keys: ['mastergoNavNodes', 'mastergoNavCollapsed', 'masterGoNavModuleEnabled', 'mastergoNavSide']
+      },
+      timestampFormatter: {
+        name: '时间戳格式化',
+        keys: ['timestampFormatterModuleEnabled', 'disabledTimestampFormatterSites', 'timestampFormatterShowUTC', 'timestampFormatterShowRelative']
       },
       global: {
         name: '全局设置',

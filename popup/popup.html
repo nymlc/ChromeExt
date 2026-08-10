@@ -127,6 +127,39 @@
               </div>
             </div>
           </div>
+
+          <!-- 时间戳格式化模块 -->
+          <div class="feature-module" data-module-id="timestampFormatter" draggable="true">
+            <div class="module-header">
+              <div class="module-header-left">
+                <span class="drag-handle" title="拖拽排序">⠿</span>
+                <h2>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round" style="color: #34c759; margin-right: 6px;">
+                    <circle cx="12" cy="12" r="9"></circle>
+                    <path d="M12 7v5l3 3"></path>
+                  </svg>
+                  时间戳格式化
+                </h2>
+              </div>
+              <label class="switch" onclick="event.stopPropagation()">
+                <input type="checkbox" id="timestampFormatterModuleEnabled" checked>
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div class="module-content" id="timestampFormatterModuleContent">
+              <div class="setting-item">
+                <span>显示 UTC 时间</span>
+                <label class="switch"><input type="checkbox" id="tsfShowUTC" checked><span class="slider"></span></label>
+              </div>
+              <div class="setting-item">
+                <span>显示相对时间</span>
+                <label class="switch"><input type="checkbox" id="tsfShowRelative" checked><span class="slider"></span></label>
+              </div>
+              <p class="hint">在网页中选中/复制数字时间戳自动弹出浮层；在其它应用复制的时间戳，回到网页或输入框粘贴即可自动识别解析。</p>
+            </div>
+          </div>
         </div>
 
         <div class="footer">
@@ -158,6 +191,7 @@
   <script src="modules/PasswordToggle.js"></script>
   <script src="modules/CredentialManager.js"></script>
   <script src="modules/MasterGoManager.js"></script>
+  <script src="modules/TimestampFormatter.js"></script>
   <script src="popup.js"></script>
 </body>
 

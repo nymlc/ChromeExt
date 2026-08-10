@@ -110,7 +110,8 @@ class MasterGoNav extends BaseContentModule {
     await this._initPool();
     this.render();
     this._syncSidebarWidth();
-    chrome.storage.onChanged.addListener(this.onStorageChange);
+    // 通过统一的存储缓存订阅变更（全局仅一个 onChanged 监听）
+    this._unsub = StorageState.subscribe((changes) => this.onStorageChange(changes));
   }
 
   _waitForBody() {
@@ -124,15 +125,15 @@ class MasterGoNav extends BaseContentModule {
   }
 
   async load() {
-    const result = await chrome.storage.local.get([
-      'mastergoNavNodes', 'mastergoNavCollapsed', 'mastergoNavSide',
-      'mastergoNavPoolCapacity', 'mastergoNavTheme',
-    ]);
-    this.nodes        = result.mastergoNavNodes        || [];
-    this.collapsed    = result.mastergoNavCollapsed    || false;
-    this.side         = result.mastergoNavSide         || 'left';
-    this.poolCapacity = result.mastergoNavPoolCapacity ?? 3;
-    this.theme        = result.mastergoNavTheme        || 'dark';
+    const get = (key, fallback) => (typeof StorageState !== 'undefined'
+      ? StorageState.get(key, fallback)
+      : (chrome.storage.local.get([key]).then(r => r[key] ?? fallback)));
+
+    this.nodes        = (await get('mastergoNavNodes', [])) || [];
+    this.collapsed    = (await get('mastergoNavCollapsed', false)) || false;
+    this.side         = (await get('mastergoNavSide', 'left')) || 'left';
+    this.poolCapacity = (await get('mastergoNavPoolCapacity', 3)) ?? 3;
+    this.theme        = (await get('mastergoNavTheme', 'dark')) || 'dark';
   }
 
   // ─── 池初始化（切换点） ───────────────────────────────────────────────────
@@ -731,7 +732,7 @@ class MasterGoNav extends BaseContentModule {
     }
     if (this._resizeObserver) { this._resizeObserver.disconnect(); this._resizeObserver = null; }
     if (this._urlPollTimer)   { clearInterval(this._urlPollTimer); this._urlPollTimer = null; }
-    chrome.storage.onChanged.removeListener(this.onStorageChange);
+    if (this._unsub) { this._unsub(); this._unsub = null; }
   }
 }
 

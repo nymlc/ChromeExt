@@ -44,10 +44,6 @@ class PasswordHelper extends BaseContentModule {
     
     // 监听DOM变化，自动处理新添加的密码框
     this.observePasswordFields();
-    
-    // 监听存储变化（只监听启用/禁用相关的变化，密码显示状态通过消息传递）
-    chrome.storage.onChanged.addListener((changes) => {
-    });
   }
   
   ensureIconContainer() {

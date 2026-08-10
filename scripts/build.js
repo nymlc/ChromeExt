@@ -69,6 +69,21 @@ if (!noBump) {
 
 const version = manifest.version;
 
+// ---- 同步 package.json 版本号（单一版本源：manifest） ----
+const PKG_PATH = path.join(ROOT, 'package.json');
+if (fs.existsSync(PKG_PATH)) {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(PKG_PATH, 'utf-8'));
+    if (pkg.version !== version) {
+      pkg.version = version;
+      fs.writeFileSync(PKG_PATH, JSON.stringify(pkg, null, 2) + '\n', 'utf-8');
+      console.log(c.green(`✅ package.json 版本号已同步: ${version}`));
+    }
+  } catch (err) {
+    console.error(c.red('❌ 同步 package.json 失败: ' + err.message));
+  }
+}
+
 // ---- 清理旧产物 ----
 if (fs.existsSync(DIST_DIR)) {
   fs.rmSync(DIST_DIR, { recursive: true });

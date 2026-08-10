@@ -14,7 +14,8 @@ class Toast {
    */
   static show(message, duration = 2000, type = 'info') {
     // 检测运行环境：popup 中的 z-index 不需要极值
-    const isContentScript = !document.querySelector('.app-wrapper');
+    // popup 容器为 id="appWrapper"（历史写法曾用 .app-wrapper，故两者都兼容判断）
+    const isContentScript = !(document.getElementById('appWrapper') || document.querySelector('.app-wrapper'));
     const zIndex = isContentScript ? 2147483647 : 10000;
 
     // 创建 toast 容器（如果不存在）

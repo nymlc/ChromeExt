@@ -184,36 +184,65 @@ class CredentialFiller extends BaseContentModule {
     }
 
     /**
-     * 根据页面 title 模糊匹配项目
+     * 根据页面 title / 域名匹配项目
+     * 关键：直读 chrome.storage，绕开 StorageState 缓存时序，保证绑定即时生效。
      */
     async matchProject() {
         const { title: pageTitle } = await this._getTopContext();
-        const result = await chrome.storage.local.get(['credentialProjects', 'titleProjectBindings', 'credentialViewMode']);
-        const projects = result.credentialProjects || [];
-        const bindings = result.titleProjectBindings || {};
-        if (result.credentialViewMode) this.credentialViewMode = result.credentialViewMode;
+        const hostname = window.location.hostname;
 
-        // 优先使用手动绑定的项目
-        const boundId = bindings[pageTitle];
+        // 直读存储，绕开缓存，保证拿到最新绑定（绑定可能在脚本加载后才发生）
+        const data = await chrome.storage.local.get([
+            'credentialProjects', 'titleProjectBindings', 'urlProjectBindings', 'credentialViewMode'
+        ]);
+        const projects = data.credentialProjects || [];
+        const titleBindings = data.titleProjectBindings || {};
+        const urlBindings = data.urlProjectBindings || {};
+        if (data.credentialViewMode) this.credentialViewMode = data.credentialViewMode;
+
+        // 候选匹配键：document.title / hostname / 完整 href / origin / 去协议 href
+        // 兼容空 title 页面 tab.title 回退为“完整网址（不带协议头）”的情况
+        // （日志已证实本页绑定键即 "pre-ipaas.aicare360.cn/iot-gate/...#/login..." 这种去协议完整 URL）
+        const hrefNoProto = window.location.href.replace(/^https?:\/\//, '');
+        const candidates = [
+            pageTitle, hostname, window.location.href, window.location.origin, hrefNoProto,
+        ].filter(Boolean);
+        const findBoundId = (bindings) => {
+            for (const key of candidates) {
+                if (bindings[key]) return bindings[key];
+            }
+            return null;
+        };
+
+        // 1. title / 域名 手动绑定（候选键兜底，使「指定项目」在任何键写法下都能命中）
+        const boundId = findBoundId(titleBindings);
         if (boundId) {
-            this.currentProject = projects.find(p => p.id === boundId) || null;
-            if (this.currentProject) return;
+            const proj = projects.find(p => p.id === boundId) || null;
+            if (proj) {
+                this.currentProject = proj;
+                return;
+            }
         }
 
-        // 其次模糊匹配（pageTitle 为空时跳过，避免空字符串匹配任意项目）
+        // 2. URL（域名）手动绑定：对 hash 路由 SPA 更可靠，免依赖页面 title
+        const urlMatch = Object.keys(urlBindings).find(rule =>
+            hostname === rule || hostname.endsWith('.' + rule)
+        );
+        if (urlMatch) {
+            const proj = projects.find(p => p.id === urlBindings[urlMatch]) || null;
+            if (proj) {
+                this.currentProject = proj;
+                return;
+            }
+        }
+
+        // 3. title 模糊匹配（pageTitle 为空时跳过，避免空字符串匹配任意项目）
         this.currentProject = pageTitle ? (projects.find(p => {
             if (!p.matchTitle) return false;
             const mt = p.matchTitle.toLowerCase();
             const pt = pageTitle.toLowerCase();
             return pt.includes(mt) || mt.includes(pt);
         }) || null) : null;
-
-        // console.log('[CredentialFiller] matchProject', {
-        //     href: window.location.href,
-        //     pageTitle,
-        //     matched: this._currentProject ? { id: this._currentProject.id, name: this._currentProject.name, matchTitle: this._currentProject.matchTitle } : null,
-        //     allProjects: projects.map(p => ({ id: p.id, name: p.name, matchTitle: p.matchTitle }))
-        // });
     }
 
     /**
@@ -237,6 +266,13 @@ class CredentialFiller extends BaseContentModule {
         const fallbackUser = this.findUsernameInput();
         if (fallbackUser === input) return true;
 
+        // 再兜底：页面存在密码框，且“可见文本输入框仅此一个”时，它就是登录用户名框
+        // 覆盖 SPA 中用户名框无占位符/无 name 等语义线索的场景
+        if (this.hasPasswordField()) {
+            const texts = this.getVisibleInputs().filter(i => this.detectFieldType(i) !== 'password');
+            if (texts.length === 1 && texts[0] === input) return true;
+        }
+
         return false;
     }
 
@@ -246,27 +282,31 @@ class CredentialFiller extends BaseContentModule {
     bindInput(input) {
         if (this.processedInputs.has(input)) return;
         this.processedInputs.add(input);
-        
-        const showPopup = () => {
-            // 前置条件：页面必须存在密码框（含被切换为明文显示的）才认为是登录页
-            if (!this.hasPasswordField()) return;
 
-            // 在事件触发时实时检测是否为登录输入框，避免因 DOM 动态加载顺序导致推断失败
-            if (!this.isLoginInput(input)) return;
-
-            // 如果当前已经在此输入框显示了弹窗，则不再重复创建
-            if (this._tooltip.isVisible && this.activeInput === input) return;
-
-            this.showCredentialPopup(input);
-        };
-
-        input.addEventListener('focus', showPopup);
-        input.addEventListener('click', showPopup);
+        input.addEventListener('focus', () => this.tryShowPopup(input));
+        input.addEventListener('click', () => this.tryShowPopup(input));
 
         // 如果输入框当前已经处于聚焦状态（比如动态插入后自动聚焦），立即弹出
         if (document.activeElement === input) {
-            showPopup();
+            this.tryShowPopup(input);
         }
+    }
+
+    /**
+     * 尝试在指定输入框弹出凭证浮层（统一前置校验，bindInput 与分步登录第二步主动触发共用）
+     */
+    tryShowPopup(input) {
+        // 前置条件：页面必须存在密码框（含被切换为明文显示的）才认为是登录页
+        // 分步登录第一步（仅用户名框）不弹，等第二步密码框出现再弹
+        if (!this.hasPasswordField()) return;
+
+        // 在事件触发时实时检测是否为登录输入框，避免因 DOM 动态加载顺序导致推断失败
+        if (!this.isLoginInput(input)) return;
+
+        // 如果当前已经在此输入框显示了弹窗，则不再重复创建
+        if (this._tooltip.isVisible && this.activeInput === input) return;
+
+        this.showCredentialPopup(input);
     }
 
     /**
@@ -277,20 +317,30 @@ class CredentialFiller extends BaseContentModule {
 
         this.observer = new MutationObserver((mutations) => {
             let hasNewInputs = false;
+            let hasNewPassword = false;
             mutations.forEach((mutation) => {
                 mutation.addedNodes.forEach((node) => {
                     if (node.nodeType !== 1) return;
-                    if (node.tagName === 'INPUT') {
-                        this.bindInput(node);
+                    const consider = (el) => {
+                        if (el.tagName !== 'INPUT') return;
+                        this.bindInput(el);
                         hasNewInputs = true;
-                    }
+                        if (el.type === 'password' || el.getAttribute('data-password-toggle') === 'true') {
+                            hasNewPassword = true;
+                        }
+                    };
+                    if (node.tagName === 'INPUT') consider(node);
                     const inputs = node.querySelectorAll?.('input');
-                    if (inputs?.length) {
-                        inputs.forEach(input => this.bindInput(input));
-                        hasNewInputs = true;
-                    }
+                    if (inputs?.length) inputs.forEach(consider);
                 });
             });
+            // 分步登录：第二步密码框出现后，若已匹配到项目且浮层未显示，主动尝试弹出
+            if (hasNewPassword && this.currentProject && !(this._tooltip && this._tooltip.isVisible)) {
+                const active = document.activeElement;
+                if (active && active.tagName === 'INPUT' && active !== document.body) {
+                    this.tryShowPopup(active);
+                }
+            }
         });
 
         this.observer.observe(document.body, { childList: true, subtree: true });
@@ -435,6 +485,16 @@ class CredentialFiller extends BaseContentModule {
             listContainer.appendChild(contentArea);
         } else {
             sorted.forEach(cred => listContainer.appendChild(buildCredItem(cred, null)));
+        }
+
+        // 空状态提示：帮助判断是“未匹配项目”还是“该项目暂无凭证”
+        if (sorted.length === 0) {
+            const tip = document.createElement('div');
+            tip.style.cssText = 'padding: 10px 14px; color: #999; font-size: 12px; line-height: 1.5;';
+            tip.textContent = this.currentProject
+                ? '该项目暂无凭证，可点击下方按钮采集'
+                : '未匹配到项目，请在插件中把本页面绑定到对应项目，或采集新凭证';
+            listContainer.appendChild(tip);
         }
 
         // 添加采集按钮
@@ -712,7 +772,7 @@ class CredentialFiller extends BaseContentModule {
      */
     fillCredential(credential) {
         const passwordInput = this.findPasswordInput();
-        const usernameInput = this.findUsernameInput();
+        const usernameInput = this.findUsernameInput({ includeHidden: true });
 
         // 填充用户名
         if (usernameInput && credential.username) {
@@ -790,19 +850,33 @@ class CredentialFiller extends BaseContentModule {
     /**
      * 查找页面上的用户名输入框
      */
-    findUsernameInput() {
-        const allInputs = this.getVisibleInputs();
+    findUsernameInput(options = {}) {
+        const includeHidden = !!options.includeHidden;
+        // 基础池：排除 type=hidden 与 display:none 的框（仍含 visibility:hidden / 离屏的“收起”框）
+        const base = Array.from(document.querySelectorAll(
+            'input[type="text"], input[type="email"], input[type="tel"], input:not([type])'
+        )).filter(i => i.type !== 'hidden' && window.getComputedStyle(i).display !== 'none');
+        const pool = includeHidden ? base : this.getVisibleInputs();
 
         // 优先通过语义识别找用户名框
-        const byHint = allInputs.find(input => this.detectFieldType(input) === 'username');
+        const byHint = pool.find(input => this.detectFieldType(input) === 'username');
         if (byHint) return byHint;
+
+        // 分步登录：第二步用户名框可能被 display:none 收起（值保留在 DOM），仍尝试用语义识别命中
+        if (includeHidden) {
+            const hiddenUser = Array.from(document.querySelectorAll(
+                'input[type="text"], input[type="email"], input[type="tel"], input:not([type])'
+            )).find(i => i.type !== 'hidden' && window.getComputedStyle(i).display === 'none'
+                && this.detectFieldType(i) === 'username');
+            if (hiddenUser) return hiddenUser;
+        }
 
         // 兜底：找密码框前面最近的文本输入框
         const passwordInput = this.findPasswordInput();
-        if (!passwordInput) return allInputs[0] || null;
+        if (!passwordInput) return pool[0] || null;
 
         let closest = null;
-        for (const input of allInputs) {
+        for (const input of pool) {
             if (input.type === 'password') continue;
             if (passwordInput.compareDocumentPosition(input) & Node.DOCUMENT_POSITION_PRECEDING) {
                 closest = input;
@@ -836,7 +910,10 @@ class CredentialFiller extends BaseContentModule {
             'input[type="text"], input[type="email"], input[type="tel"], input[type="password"], input:not([type])'
         )).filter(input => {
             const style = window.getComputedStyle(input);
-            return style.display !== 'none' && style.visibility !== 'hidden' && input.offsetParent !== null;
+            // 排除真正隐藏的元素；offsetParent 为 null 仅代表脱离文档流（如 position:fixed），不代表不可见
+            if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse') return false;
+            if (input.offsetParent === null && style.position !== 'fixed') return false;
+            return true;
         });
     }
 
@@ -946,17 +1023,19 @@ class CredentialFiller extends BaseContentModule {
         }
 
         const { title: pageTitle } = await this._getTopContext();
-        let result;
+        let projects;
         try {
-            result = await chrome.storage.local.get(['credentialProjects']);
+            const stored = typeof StorageState !== 'undefined'
+                ? { credentialProjects: StorageState.get('credentialProjects', []) }
+                : await chrome.storage.local.get(['credentialProjects']);
+            projects = stored.credentialProjects || [];
         } catch (e) {
-            if (e.message.includes('Extension context invalidated')) {
+            if (e.message && e.message.includes('Extension context invalidated')) {
                 Toast.error('插件刚被重新加载，请刷新当前网页以继续使用。');
                 return;
             }
             throw e;
         }
-        const projects = result.credentialProjects || [];
 
         let project = this.currentProject;
         if (!project) {

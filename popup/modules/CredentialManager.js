@@ -22,6 +22,16 @@ class CredentialManager extends BaseModule {
         await this.loadProjects();
         await this.getPageTitle();
 
+        // 预读域名绑定信息，供详情页显示按钮状态
+        const ub = await chrome.storage.local.get(['urlProjectBindings']);
+        this.urlBindings = ub.urlProjectBindings || {};
+        try {
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            this.currentHost = tab?.url ? new URL(tab.url).hostname : '';
+        } catch (e) {
+            this.currentHost = '';
+        }
+
         // 读取视图偏好
         const prefResult = await chrome.storage.local.get(['credentialViewMode']);
         if (prefResult.credentialViewMode) {
@@ -297,6 +307,28 @@ class CredentialManager extends BaseModule {
         header.appendChild(backBtn);
         header.appendChild(titleInput);
         container.appendChild(header);
+
+        // 域名绑定行（URL 绑定，对 hash 路由 SPA 更可靠，免依赖页面 title）
+        if (this.currentHost) {
+            const urlRow = document.createElement('div');
+            urlRow.style.cssText = 'display: flex; align-items: center; gap: 6px; margin-bottom: 10px; font-size: 12px;';
+            const urlLabel = document.createElement('span');
+            urlLabel.textContent = '域名绑定：';
+            urlLabel.style.cssText = 'color: #999; white-space: nowrap;';
+            const isBound = this.urlBindings[this.currentHost] === project.id;
+            const urlBtn = document.createElement('button');
+            urlBtn.className = 'btn btn-secondary btn-small';
+            urlBtn.textContent = isBound ? '✓ 已绑定本域名（点击解除）' : '绑定当前域名';
+            urlBtn.style.cssText = `font-size: 11px; padding: 3px 8px; ${isBound ? 'border-color:#667eea; color:#667eea;' : ''}`;
+            urlBtn.addEventListener('click', () => this.toggleUrlBinding());
+            const hostTip = document.createElement('span');
+            hostTip.textContent = this.currentHost;
+            hostTip.style.cssText = 'color: #aaa; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0;';
+            urlRow.appendChild(urlLabel);
+            urlRow.appendChild(urlBtn);
+            urlRow.appendChild(hostTip);
+            container.appendChild(urlRow);
+        }
 
         // 切换项目下拉
         if (this.projects.length > 1) {
@@ -1142,6 +1174,38 @@ class CredentialManager extends BaseModule {
     }
 
     /**
+     * 在当前域名上绑定/解绑项目（URL 匹配，对 hash 路由 SPA 等 title 不稳的页面更可靠）
+     */
+    async toggleUrlBinding() {
+        if (!this.currentProject) {
+            Toast.warning('请先进入一个项目再绑定本域名');
+            return;
+        }
+        if (!this.currentHost) {
+            Toast.warning('无法获取当前页面域名');
+            return;
+        }
+        const result = await chrome.storage.local.get(['urlProjectBindings']);
+        const m = result.urlProjectBindings || {};
+        if (m[this.currentHost] === this.currentProject.id) {
+            delete m[this.currentHost];
+            this.urlBindings[this.currentHost] = undefined;
+            await chrome.storage.local.set({ urlProjectBindings: m });
+            Toast.success('已解除域名绑定');
+        } else {
+            m[this.currentHost] = this.currentProject.id;
+            this.urlBindings[this.currentHost] = this.currentProject.id;
+            await chrome.storage.local.set({ urlProjectBindings: m });
+            Toast.success('已绑定到域名 ' + this.currentHost);
+        }
+        try {
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (tab) await chrome.tabs.sendMessage(tab.id, { action: 'credentialProjectUpdated' });
+        } catch (e) { /* 忽略 */ }
+        this.render();
+    }
+
+    /**
      * 根据页面 title 模糊匹配已有项目
      */
     findProjectByTitle(title) {
@@ -1167,15 +1231,20 @@ class CredentialManager extends BaseModule {
 
     /**
      * 手动绑定当前页面到指定项目
+     * 同时以 标题 与 域名 作为键写入，保证 content 脚本（只能拿到 hostname）也能命中。
      */
     async bindProjectToPage(projectId) {
         const result = await chrome.storage.local.get(['titleProjectBindings']);
         const bindings = result.titleProjectBindings || {};
-        if (projectId) {
-            bindings[this.pageTitle] = projectId;
-        } else {
-            delete bindings[this.pageTitle];
-        }
+        // 用标题与域名作为候选键，空 title 页面会回退到域名（与 content 侧匹配键一致）
+        const keys = [this.pageTitle, this.currentHost].filter(Boolean);
+        keys.forEach((k) => {
+            if (projectId) {
+                bindings[k] = projectId;
+            } else {
+                delete bindings[k];
+            }
+        });
         await chrome.storage.local.set({ titleProjectBindings: bindings });
     }
 }

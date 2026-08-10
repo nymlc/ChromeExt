@@ -1,14 +1,15 @@
 {
   "manifest_version": 3,
   "name": "极客百宝箱",
-  "version": "1.0.3",
+  "version": "1.0.30",
   "description": "集成了多项实用工具的全能浏览器助手",
   "permissions": [
     "activeTab",
     "scripting",
     "storage",
     "tabs",
-    "tabGroups"
+    "tabGroups",
+    "clipboard-write"
   ],
   "commands": {
     "toggle-password": {
@@ -47,11 +48,14 @@
         "https://mastergo.com/*"
       ],
       "js": [
+        "shared/storageState.js",
         "shared/Toast.js",
         "shared/SideTooltip.js",
+        "shared/timeFormat.js",
         "content/modules/BaseModule.js",
         "content/modules/PasswordHelper.js",
         "content/modules/CredentialFiller.js",
+        "content/modules/TimestampFormatter.js",
         "content/content.js"
       ],
       "run_at": "document_idle",
@@ -62,6 +66,7 @@
         "https://mastergo.com/*"
       ],
       "js": [
+        "shared/storageState.js",
         "shared/Toast.js",
         "shared/TabPool.js",
         "content/modules/BaseModule.js",
