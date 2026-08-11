@@ -54,6 +54,9 @@ class PopupManager {
     this.modules.timestampFormatter = new TimestampFormatter();
     await this.modules.timestampFormatter.init();
 
+    this.modules.qrCodeTool = new QrCodeTool();
+    await this.modules.qrCodeTool.init();
+
     // 恢复模块顺序并初始化拖拽
     await this.restoreModuleOrder();
     this.initDragSort();
@@ -211,6 +214,11 @@ class PopupManager {
     container.addEventListener('dragstart', (e) => {
       const module = e.target.closest('.feature-module[data-module-id]');
       if (!module) return;
+      // 从表单控件（输入框/文本域/按钮/开关）起拖时不启动模块拖拽，避免误触
+      if (e.target.closest('input, textarea, button, label.switch')) {
+        e.preventDefault();
+        return;
+      }
       draggedEl = module;
       module.classList.add('dragging');
       e.dataTransfer.effectAllowed = 'move';

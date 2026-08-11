@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "极客百宝箱",
-  "version": "1.0.30",
+  "version": "1.0.39",
   "description": "集成了多项实用工具的全能浏览器助手",
   "permissions": [
     "activeTab",
@@ -9,7 +9,8 @@
     "storage",
     "tabs",
     "tabGroups",
-    "clipboard-write"
+    "clipboard-write",
+    "contextMenus"
   ],
   "commands": {
     "toggle-password": {
@@ -52,10 +53,13 @@
         "shared/Toast.js",
         "shared/SideTooltip.js",
         "shared/timeFormat.js",
+        "lib/jsqr.min.js",
+        "lib/qrcode.min.js",
         "content/modules/BaseModule.js",
         "content/modules/PasswordHelper.js",
         "content/modules/CredentialFiller.js",
         "content/modules/TimestampFormatter.js",
+        "content/modules/QrCodeTool.js",
         "content/content.js"
       ],
       "run_at": "document_idle",

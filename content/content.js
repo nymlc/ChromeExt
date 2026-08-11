@@ -14,6 +14,7 @@ class ContentManager {
       passwordHelper: null,
       credentialFiller: null,
       timestampFormatter: null,
+      qrCodeTool: null,
     };
     this._subscribed = false;
     this._unsub = null;
@@ -40,6 +41,7 @@ class ContentManager {
     await this.initPasswordModule();
     await this.initCredentialModule();
     await this.initTimestampModule();
+    await this.initQrCodeModule();
   }
 
   _subscribeOnce() {
@@ -70,6 +72,14 @@ class ContentManager {
     }
     this.modules.timestampFormatter = new TimestampFormatter();
     await this.modules.timestampFormatter.init();
+  }
+
+  async initQrCodeModule() {
+    if (this.modules.qrCodeTool) {
+      this.modules.qrCodeTool.destroy();
+    }
+    this.modules.qrCodeTool = new QrCodeTool();
+    await this.modules.qrCodeTool.init();
   }
 
   onStorageChange(changes) {
@@ -188,6 +198,32 @@ class ContentManager {
         if (this.modules.timestampFormatter) {
           this.modules.timestampFormatter.destroy();
           this.modules.timestampFormatter = null;
+        }
+      }
+    }
+
+    // 监听二维码模块全局启用状态变化
+    if (changes.qrCodeToolModuleEnabled) {
+      const enabled = changes.qrCodeToolModuleEnabled.newValue;
+      if (enabled) {
+        this.initQrCodeModule();
+      } else if (this.modules.qrCodeTool) {
+        this.modules.qrCodeTool.destroy();
+        this.modules.qrCodeTool = null;
+      }
+    }
+
+    // 监听二维码模块网站禁用列表变化
+    if (changes.disabledQrCodeToolSites) {
+      const disabledSites = changes.disabledQrCodeToolSites.newValue || [];
+      const wasDisabled = changes.disabledQrCodeToolSites.oldValue?.includes(hostname);
+      const isDisabled = disabledSites.includes(hostname);
+      if (wasDisabled && !isDisabled) {
+        this.initQrCodeModule();
+      } else if (!wasDisabled && isDisabled) {
+        if (this.modules.qrCodeTool) {
+          this.modules.qrCodeTool.destroy();
+          this.modules.qrCodeTool = null;
         }
       }
     }

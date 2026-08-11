@@ -160,6 +160,47 @@
               <p class="hint">在网页中选中/复制数字时间戳自动弹出浮层；在其它应用复制的时间戳，回到网页或输入框粘贴即可自动识别解析。</p>
             </div>
           </div>
+
+          <!-- 二维码工具模块 -->
+          <div class="feature-module" data-module-id="qrCodeTool" draggable="true">
+            <div class="module-header">
+              <div class="module-header-left">
+                <span class="drag-handle" title="拖拽排序">⠿</span>
+                <h2>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="3" width="7" height="7" rx="1"></rect>
+                    <rect x="14" y="3" width="7" height="7" rx="1"></rect>
+                    <rect x="3" y="14" width="7" height="7" rx="1"></rect>
+                    <path d="M14 14h3v3h-3z M18 18h3v3h-3z"></path>
+                  </svg>
+                  二维码工具
+                </h2>
+              </div>
+            <label class="switch" onclick="event.stopPropagation()">
+              <input type="checkbox" id="qrCodeToolModuleEnabled" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="module-content" id="qrCodeToolModuleContent">
+            <div class="setting-item" style="flex-direction:column; align-items:stretch; gap:8px;">
+              <div style="font-weight:600;">生成二维码</div>
+              <textarea id="qrcodeGenInput" placeholder="输入文本或网址…" rows="3" style="width:100%; resize:vertical; border:1px solid #e0e0e0; border-radius:8px; padding:8px; font-size:13px; font-family:inherit; box-sizing:border-box;"></textarea>
+              <div id="qrcodeGenStatus" style="display:none; color:#ff9500; font-size:12px;"></div>
+              <canvas id="qrcodeGenCanvas" style="display:none; margin:4px auto 0; background:#fff; border:1px solid #e0e0e0; border-radius:8px; padding:4px; max-width:100%;"></canvas>
+              <button id="qrcodeGenDownload" class="btn btn-secondary btn-small" style="align-self:flex-start;">下载 PNG</button>
+            </div>
+            <div class="setting-item" style="flex-direction:column; align-items:stretch; gap:8px; margin-top:14px;">
+              <div style="font-weight:600;">解码二维码（上传 / 粘贴图片）</div>
+              <label class="btn btn-primary btn-small" style="align-self:flex-start; cursor:pointer;">
+                选择图片
+                <input id="qrcodeDecodeFile" type="file" accept="image/*" style="display:none;">
+              </label>
+              <div id="qrcodeDecodeStatus" style="display:none; color:#ff9500; font-size:12px;"></div>
+              <div id="qrcodeDecodeResult" style="display:none; margin-top:4px; padding:10px; border:1px solid #e0e0e0; border-radius:8px; background:#fafafa; font-size:13px; white-space:pre-wrap; word-break:break-all;"></div>
+              <button id="qrcodeDecodeCopy" class="btn btn-secondary btn-small" style="align-self:flex-start;">复制结果</button>
+            </div>
+          </div>
+        </div>
         </div>
 
         <div class="footer">
@@ -187,11 +228,14 @@
   </div>
 
   <script src="../shared/Toast.js"></script>
+  <script src="../lib/qrcode.min.js"></script>
+  <script src="../lib/jsqr.min.js"></script>
   <script src="modules/BaseModule.js"></script>
   <script src="modules/PasswordToggle.js"></script>
   <script src="modules/CredentialManager.js"></script>
   <script src="modules/MasterGoManager.js"></script>
   <script src="modules/TimestampFormatter.js"></script>
+  <script src="modules/QrCodeTool.js"></script>
   <script src="popup.js"></script>
 </body>
 
