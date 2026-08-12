@@ -613,16 +613,39 @@ input[type="text"]:focus, input[type="password"]:focus {
   font-size: 18px;
 }
 
-/* 隐藏模块管理面板条目 */
-.hidden-module-item {
+/* 隐藏模块管理面板：已隐藏模块以与正常列表一致的卡片呈现，可点击进入详情 */
+.hidden-card {
+  background: var(--card-bg);
+  border-radius: 12px;
+  padding: 16px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: background .15s ease;
+}
+.hidden-card:hover {
+  background: var(--card-bg-hover, rgba(0,0,0,0.04));
+}
+.hidden-card .module-header {
+  border-bottom: none;
+  padding-bottom: 0;
+  margin-bottom: 0;
+}
+.hidden-card .module-header-right {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 12px 4px;
-  border-bottom: 1px solid var(--list-separator);
-  font-size: 14px;
-  color: var(--text-main);
+  gap: 8px;
 }
-.hidden-module-item:last-child {
-  border-bottom: none;
+/* 「显示」按钮：蓝色圆角胶囊，视觉与整体一致 */
+.module-show-btn {
+  background: #007aff;
+  color: #fff;
+  border: none;
+  border-radius: 14px;
+  padding: 5px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+  transition: background .15s ease;
 }
+.module-show-btn:hover { background: #0066d6; }

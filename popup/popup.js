@@ -431,29 +431,62 @@ class PopupManager {
   }
 
   /**
-   * 渲染隐藏模块管理面板（列出已隐藏模块，可逐个恢复）
+   * 渲染隐藏模块管理面板：已隐藏模块以与正常列表一致的卡片样式呈现，逐个可恢复
    */
   renderHiddenModulesPanel() {
     const container = document.getElementById('hiddenModulesModuleContent');
     if (!container) return;
     const names = this.getModuleDataKeys();
 
+    container.innerHTML = '';
     if (this.hiddenModules.length === 0) {
-      container.innerHTML = '<p class="hint" style="padding:16px 4px;">暂无隐藏的模块</p>';
+      const p = document.createElement('p');
+      p.className = 'hint';
+      p.style.cssText = 'padding:16px 4px;';
+      p.textContent = '暂无隐藏的模块';
+      container.appendChild(p);
       return;
     }
 
-    container.innerHTML = this.hiddenModules.map(id => {
-      const name = (names[id] && names[id].name) || id;
-      return `
-        <div class="hidden-module-item">
-          <span>${name}</span>
-          <button class="btn btn-secondary btn-small" data-show="${id}">显示</button>
-        </div>`;
-    }).join('');
+    this.hiddenModules.forEach(id => {
+      const src = document.querySelector(`.feature-module[data-module-id="${id}"]`);
+      const card = document.createElement('div');
+      card.className = 'feature-module hidden-card';
+      card.dataset.moduleId = id;
+
+      let name = (names[id] && names[id].name) || id;
+      if (src) {
+        const header = src.querySelector('.module-header');
+        if (header) {
+          const clone = header.cloneNode(true);
+          // 去掉开关，保留「进入详情(›)」图标；右侧补「显示」按钮，视觉与正常卡片一致
+          const right = clone.querySelector('.module-header-right');
+          if (right) {
+            right.querySelectorAll('.switch').forEach(el => el.remove());
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'module-show-btn';
+            btn.dataset.show = id;
+            btn.textContent = '显示';
+            right.appendChild(btn);
+          }
+          card.appendChild(clone);
+        }
+      } else {
+        const h = document.createElement('h2');
+        h.textContent = name;
+        card.appendChild(h);
+      }
+      // 点击卡片（除「显示」按钮外）-> 进入该模块详情页，与正常模块行为一致
+      card.addEventListener('click', () => this.openSubpage(name, id));
+      container.appendChild(card);
+    });
 
     container.querySelectorAll('[data-show]').forEach(btn => {
-      btn.addEventListener('click', () => this.toggleHideModule(btn.dataset.show, false));
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation(); // 不触发卡片「进详情」
+        this.toggleHideModule(btn.dataset.show, false);
+      });
     });
   }
 
