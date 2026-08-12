@@ -46,9 +46,16 @@
 
         <!-- 模块区域（可滚动、可拖拽排序） -->
         <div class="modules-container" id="modulesContainer">
+          <!-- 已隐藏模块入口（默认隐藏，有隐藏模块时出现） -->
+          <div class="hidden-modules-entry" id="hiddenModulesEntry" style="display:none;">
+            <span>已隐藏 <span class="hidden-count">0</span> 个模块</span>
+            <span class="enter-icon">›</span>
+          </div>
+
           <!-- 密码显示功能区域 -->
-          <div class="feature-module" data-module-id="password" draggable="true">
-            <div class="module-header">
+          <div class="feature-module clickable-module" data-module-id="password" draggable="true"
+            id="passwordModuleEntry">
+            <div class="module-header" style="margin-bottom: 0; border-bottom: none; padding-bottom: 0;">
               <div class="module-header-left">
                 <span class="drag-handle" title="拖拽排序">⠿</span>
                 <h2>
@@ -60,19 +67,13 @@
                   密码显示
                 </h2>
               </div>
-              <label class="switch" onclick="event.stopPropagation()">
-                <input type="checkbox" id="passwordModuleEnabled" checked>
-                <span class="slider"></span>
-              </label>
-            </div>
-
-            <div class="module-content" id="passwordModuleContent">
-              <div class="setting-item">
-                <button id="togglePassword" class="btn btn-primary btn-block">
-                  <span id="toggleText">显示所有密码</span>
-                </button>
+              <div class="module-header-right">
+                <span class="enter-icon">›</span>
+                <label class="switch" onclick="event.stopPropagation()">
+                  <input type="checkbox" id="passwordModuleEnabled" checked>
+                  <span class="slider"></span>
+                </label>
               </div>
-              <p class="hint">双击密码框或点击眼睛图标可单独切换</p>
             </div>
           </div>
 
@@ -129,8 +130,9 @@
           </div>
 
           <!-- 时间戳格式化模块 -->
-          <div class="feature-module" data-module-id="timestampFormatter" draggable="true">
-            <div class="module-header">
+          <div class="feature-module clickable-module" data-module-id="timestampFormatter" draggable="true"
+            id="timestampFormatterModuleEntry">
+            <div class="module-header" style="margin-bottom: 0; border-bottom: none; padding-bottom: 0;">
               <div class="module-header-left">
                 <span class="drag-handle" title="拖拽排序">⠿</span>
                 <h2>
@@ -142,28 +144,20 @@
                   时间戳格式化
                 </h2>
               </div>
-              <label class="switch" onclick="event.stopPropagation()">
-                <input type="checkbox" id="timestampFormatterModuleEnabled" checked>
-                <span class="slider"></span>
-              </label>
-            </div>
-
-            <div class="module-content" id="timestampFormatterModuleContent">
-              <div class="setting-item">
-                <span>显示 UTC 时间</span>
-                <label class="switch"><input type="checkbox" id="tsfShowUTC" checked><span class="slider"></span></label>
+              <div class="module-header-right">
+                <span class="enter-icon">›</span>
+                <label class="switch" onclick="event.stopPropagation()">
+                  <input type="checkbox" id="timestampFormatterModuleEnabled" checked>
+                  <span class="slider"></span>
+                </label>
               </div>
-              <div class="setting-item">
-                <span>显示相对时间</span>
-                <label class="switch"><input type="checkbox" id="tsfShowRelative" checked><span class="slider"></span></label>
-              </div>
-              <p class="hint">在网页中选中/复制数字时间戳自动弹出浮层；在其它应用复制的时间戳，回到网页或输入框粘贴即可自动识别解析。</p>
             </div>
           </div>
 
           <!-- 二维码工具模块 -->
-          <div class="feature-module" data-module-id="qrCodeTool" draggable="true">
-            <div class="module-header">
+          <div class="feature-module clickable-module" data-module-id="qrCodeTool" draggable="true"
+            id="qrCodeToolModuleEntry">
+            <div class="module-header" style="margin-bottom: 0; border-bottom: none; padding-bottom: 0;">
               <div class="module-header-left">
                 <span class="drag-handle" title="拖拽排序">⠿</span>
                 <h2>
@@ -176,31 +170,15 @@
                   二维码工具
                 </h2>
               </div>
-            <label class="switch" onclick="event.stopPropagation()">
-              <input type="checkbox" id="qrCodeToolModuleEnabled" checked>
-              <span class="slider"></span>
-            </label>
-          </div>
-          <div class="module-content" id="qrCodeToolModuleContent">
-            <div class="setting-item" style="flex-direction:column; align-items:stretch; gap:8px;">
-              <div style="font-weight:600;">生成二维码</div>
-              <textarea id="qrcodeGenInput" placeholder="输入文本或网址…" rows="3" style="width:100%; resize:vertical; border:1px solid #e0e0e0; border-radius:8px; padding:8px; font-size:13px; font-family:inherit; box-sizing:border-box;"></textarea>
-              <div id="qrcodeGenStatus" style="display:none; color:#ff9500; font-size:12px;"></div>
-              <canvas id="qrcodeGenCanvas" style="display:none; margin:4px auto 0; background:#fff; border:1px solid #e0e0e0; border-radius:8px; padding:4px; max-width:100%;"></canvas>
-              <button id="qrcodeGenDownload" class="btn btn-secondary btn-small" style="align-self:flex-start;">下载 PNG</button>
-            </div>
-            <div class="setting-item" style="flex-direction:column; align-items:stretch; gap:8px; margin-top:14px;">
-              <div style="font-weight:600;">解码二维码（上传 / 粘贴图片）</div>
-              <label class="btn btn-primary btn-small" style="align-self:flex-start; cursor:pointer;">
-                选择图片
-                <input id="qrcodeDecodeFile" type="file" accept="image/*" style="display:none;">
-              </label>
-              <div id="qrcodeDecodeStatus" style="display:none; color:#ff9500; font-size:12px;"></div>
-              <div id="qrcodeDecodeResult" style="display:none; margin-top:4px; padding:10px; border:1px solid #e0e0e0; border-radius:8px; background:#fafafa; font-size:13px; white-space:pre-wrap; word-break:break-all;"></div>
-              <button id="qrcodeDecodeCopy" class="btn btn-secondary btn-small" style="align-self:flex-start;">复制结果</button>
+              <div class="module-header-right">
+                <span class="enter-icon">›</span>
+                <label class="switch" onclick="event.stopPropagation()">
+                  <input type="checkbox" id="qrCodeToolModuleEnabled" checked>
+                  <span class="slider"></span>
+                </label>
+              </div>
             </div>
           </div>
-        </div>
         </div>
 
         <div class="footer">
@@ -224,6 +202,51 @@
       <div class="subpage-content" id="masterGoNavModuleContent" style="display:none;">
         <!-- 由 MasterGoManager.js 动态渲染 -->
       </div>
+
+      <!-- 以下为从卡片迁移进来的模块内容（id 保持不变，模块 JS 按 id 引用） -->
+      <div class="subpage-content" id="passwordModuleContent" style="display:none;">
+        <div class="setting-item">
+          <button id="togglePassword" class="btn btn-primary btn-block">
+            <span id="toggleText">显示所有密码</span>
+          </button>
+        </div>
+        <p class="hint">双击密码框或点击眼睛图标可单独切换</p>
+      </div>
+
+      <div class="subpage-content" id="timestampFormatterModuleContent" style="display:none;">
+        <div class="setting-item">
+          <span>显示 UTC 时间</span>
+          <label class="switch"><input type="checkbox" id="tsfShowUTC" checked><span class="slider"></span></label>
+        </div>
+        <div class="setting-item">
+          <span>显示相对时间</span>
+          <label class="switch"><input type="checkbox" id="tsfShowRelative" checked><span class="slider"></span></label>
+        </div>
+        <p class="hint">在网页中选中/复制数字时间戳自动弹出浮层；在其它应用复制的时间戳，回到网页或输入框粘贴即可自动识别解析。</p>
+      </div>
+
+      <div class="subpage-content" id="qrCodeToolModuleContent" style="display:none;">
+        <div class="setting-item" style="flex-direction:column; align-items:stretch; gap:8px;">
+          <div style="font-weight:600;">生成二维码</div>
+          <textarea id="qrcodeGenInput" placeholder="输入文本或网址…" rows="3" style="width:100%; resize:vertical; border:1px solid #e0e0e0; border-radius:8px; padding:8px; font-size:13px; font-family:inherit; box-sizing:border-box;"></textarea>
+          <div id="qrcodeGenStatus" style="display:none; color:#ff9500; font-size:12px;"></div>
+          <canvas id="qrcodeGenCanvas" style="display:none; margin:4px auto 0; background:#fff; border:1px solid #e0e0e0; border-radius:8px; padding:4px; max-width:100%;"></canvas>
+          <button id="qrcodeGenDownload" class="btn btn-secondary btn-small" style="align-self:flex-start;">下载 PNG</button>
+        </div>
+        <div class="setting-item" style="flex-direction:column; align-items:stretch; gap:8px; margin-top:14px;">
+          <div style="font-weight:600;">解码二维码（上传 / 粘贴图片）</div>
+          <label class="btn btn-primary btn-small" style="align-self:flex-start; cursor:pointer;">
+            选择图片
+            <input id="qrcodeDecodeFile" type="file" accept="image/*" style="display:none;">
+          </label>
+          <div id="qrcodeDecodeStatus" style="display:none; color:#ff9500; font-size:12px;"></div>
+          <div id="qrcodeDecodeResult" style="display:none; margin-top:4px; padding:10px; border:1px solid #e0e0e0; border-radius:8px; background:#fafafa; font-size:13px; white-space:pre-wrap; word-break:break-all;"></div>
+          <button id="qrcodeDecodeCopy" class="btn btn-secondary btn-small" style="align-self:flex-start;">复制结果</button>
+        </div>
+      </div>
+
+      <!-- 隐藏模块管理面板 -->
+      <div class="subpage-content" id="hiddenModulesModuleContent" style="display:none;"></div>
     </div>
   </div>
 

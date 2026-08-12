@@ -17,7 +17,20 @@ class PopupManager {
       credentialManager: null,
       masterGoManager: null,
     };
-    this.activeSubpageModule = null; // 'credential' | 'masterGoNav'
+    this.activeSubpageModule = null; // 'credential' | 'masterGoNav' | 'password' | 'timestampFormatter' | 'qrCodeTool' | 'hiddenModules'
+
+    // 子页内容容器映射（data-driven，openSubpage / _syncSubpageHeight 共用）
+    this.contentMap = {
+      credential: 'credentialModuleContent',
+      masterGoNav: 'masterGoNavModuleContent',
+      password: 'passwordModuleContent',
+      timestampFormatter: 'timestampFormatterModuleContent',
+      qrCodeTool: 'qrCodeToolModuleContent',
+      hiddenModules: 'hiddenModulesModuleContent',
+    };
+
+    // 已隐藏的模块 id 列表
+    this.hiddenModules = [];
   }
 
   async init() {
@@ -63,22 +76,36 @@ class PopupManager {
 
     // 初始化路由导航
     this.initNavigation();
+
+    // 初始化模块隐藏功能
+    await this.initModuleHiding();
   }
 
   initNavigation() {
-    const credentialEntry = document.getElementById('credentialModuleEntry');
-    if (credentialEntry) {
-      credentialEntry.addEventListener('click', (e) => {
-        if (e.target.closest('.switch') || e.target.closest('.drag-handle')) return;
-        this.openSubpage('凭证管理', 'credential');
+    // 统一的模块卡片点击处理：
+    // - 开关 / 拖拽手柄 / 右侧「隐藏」按钮(.module-reveal) 不触发进子页
+    // - 其余点击进入该模块子页（hover 左滑露出的隐藏按钮由它自己的 handler 处理）
+    const bindEntry = (el, moduleId, title) => {
+      if (!el) return;
+      el.addEventListener('click', (e) => {
+        if (e.target.closest('.switch') || e.target.closest('.drag-handle') || e.target.closest('.module-reveal')) return;
+        // 已左滑揭示态：点卡片主体只收起，不进子页
+        if (el.classList.contains('slid')) { el.classList.remove('slid'); return; }
+        this.openSubpage(title, moduleId);
       });
-    }
+    };
 
-    const masterGoEntry = document.getElementById('masterGoNavModuleEntry');
-    if (masterGoEntry) {
-      masterGoEntry.addEventListener('click', (e) => {
-        if (e.target.closest('.switch') || e.target.closest('.drag-handle')) return;
-        this.openSubpage('MasterGo 导航', 'masterGoNav');
+    bindEntry(document.getElementById('credentialModuleEntry'), 'credential', '凭证管理');
+    bindEntry(document.getElementById('masterGoNavModuleEntry'), 'masterGoNav', 'MasterGo 导航');
+    bindEntry(document.getElementById('passwordModuleEntry'), 'password', '密码显示');
+    bindEntry(document.getElementById('timestampFormatterModuleEntry'), 'timestampFormatter', '时间戳格式化');
+    bindEntry(document.getElementById('qrCodeToolModuleEntry'), 'qrCodeTool', '二维码工具');
+
+    // 顶部「已隐藏 N 个模块」入口
+    const hiddenEntry = document.getElementById('hiddenModulesEntry');
+    if (hiddenEntry) {
+      hiddenEntry.addEventListener('click', () => {
+        this.openSubpage('已隐藏的模块', 'hiddenModules');
       });
     }
 
@@ -91,17 +118,23 @@ class PopupManager {
   openSubpage(title, moduleId) {
     this.activeSubpageModule = moduleId;
 
-    // 切换可见的 content 容器
-    document.getElementById('credentialModuleContent').style.display = moduleId === 'credential' ? '' : 'none';
-    document.getElementById('masterGoNavModuleContent').style.display = moduleId === 'masterGoNav' ? '' : 'none';
+    // 切换可见的 content 容器（data-driven）
+    const activeContentId = this.contentMap[moduleId];
+    Object.values(this.contentMap).forEach(cid => {
+      const el = document.getElementById(cid);
+      if (el) el.style.display = (cid === activeContentId) ? '' : 'none';
+    });
 
     const titleEl = document.getElementById('subpageTitle');
     if (titleEl) titleEl.textContent = title;
 
+    // 隐藏模块管理面板：进入时渲染最新列表
+    if (moduleId === 'hiddenModules') this.renderHiddenModulesPanel();
+
     const wrapper = document.getElementById('appWrapper');
     if (wrapper) {
       wrapper.classList.add('show-subpage');
-      // 等待凭证管理模块渲染完成后再测量
+      // 等待模块渲染完成后再测量
       setTimeout(() => this._syncSubpageHeight(), 50);
     }
   }
@@ -126,9 +159,7 @@ class PopupManager {
     const wrapper = document.getElementById('appWrapper');
     const subpage = document.getElementById('viewSubpage');
     const header = document.querySelector('.subpage-header');
-    const contentId = this.activeSubpageModule === 'masterGoNav'
-      ? 'masterGoNavModuleContent'
-      : 'credentialModuleContent';
+    const contentId = this.contentMap[this.activeSubpageModule] || 'credentialModuleContent';
     const content = document.getElementById(contentId);
     if (!wrapper || !content || !subpage) return;
 
@@ -277,6 +308,153 @@ class PopupManager {
     const order = Array.from(container.querySelectorAll('.feature-module[data-module-id]'))
       .map(el => el.dataset.moduleId);
     await chrome.storage.local.set({ moduleOrder: order });
+  }
+
+  // ==================== 模块隐藏 ====================
+
+  /**
+   * 初始化模块隐藏：读取已隐藏列表、套用、绑定「隐藏」按钮、渲染顶部入口
+   */
+  async initModuleHiding() {
+    const result = await chrome.storage.local.get(['hiddenModules']);
+    this.hiddenModules = Array.isArray(result.hiddenModules) ? result.hiddenModules : [];
+
+    this.applyHiddenModules();
+
+    // 把每张卡片的现有内容包进 .module-inner（仅包一次）：
+    // 左滑只位移 .module-inner，外层 .feature-module 始终不动 -> mouseleave 判定“是否还在这一行”才精确。
+    document.querySelectorAll('.feature-module[data-module-id]').forEach(fm => {
+      if (fm.firstElementChild && fm.firstElementChild.classList.contains('module-inner')) return;
+      const inner = document.createElement('div');
+      inner.className = 'module-inner';
+      while (fm.firstChild) inner.appendChild(fm.firstChild);
+      fm.appendChild(inner);
+    });
+
+    // 微信式 v3：每个模块右侧注入两个独立元素，互不干扰：
+    //  - .module-sliver：hover 时从右缘探出的「全圆角小药丸」，点它 -> 内层左滑
+    //  - .module-reveal：左滑后出现的完整「隐藏」按钮，点它 -> 执行隐藏
+    // 缺失才创建，已有的不重复。
+    document.querySelectorAll('.feature-module[data-module-id]').forEach(fm => {
+      const id = fm.dataset.moduleId;
+      // hover 细滑块（圆角小药丸）
+      let sliver = fm.querySelector('.module-sliver');
+      if (!sliver) {
+        sliver = document.createElement('button');
+        sliver.type = 'button';
+        sliver.className = 'module-sliver';
+        sliver.title = '隐藏模块';
+        sliver.setAttribute('aria-label', '隐藏模块');
+        fm.appendChild(sliver);
+      }
+      // 左滑后的完整「隐藏」按钮
+      let reveal = fm.querySelector('.module-reveal');
+      if (!reveal) {
+        reveal = document.createElement('button');
+        reveal.type = 'button';
+        reveal.className = 'module-reveal';
+        reveal.title = '隐藏模块';
+        reveal.textContent = '隐藏';
+        fm.appendChild(reveal);
+      }
+      // 点细滑块 -> 内层左滑（收起其它已展开的）
+      sliver.addEventListener('click', (e) => {
+        e.stopPropagation(); // 不触发卡片「进子页」、也不冒泡到 document 收起
+        if (fm.classList.contains('slid')) return;
+        document.querySelectorAll('.feature-module.slid').forEach(o => { if (o !== fm) o.classList.remove('slid'); });
+        fm.classList.add('slid');
+      });
+      // 点隐藏按钮 -> 执行隐藏并收起
+      reveal.addEventListener('click', (e) => {
+        e.stopPropagation(); // 不触发卡片「进子页」、也不冒泡到 document 收起
+        if (fm.classList.contains('slid')) {
+          fm.classList.remove('slid');
+          this.toggleHideModule(id, true);
+        }
+      });
+
+      // 鼠标离开该模块 -> 自动收起左滑（恢复常态），避免卡在左滑态
+      fm.addEventListener('mouseleave', () => fm.classList.remove('slid'));
+    });
+
+    // 点击卡片以外的区域 -> 收起所有已左滑揭示的模块（避免卡在左滑态）
+    document.addEventListener('click', (e) => {
+      if (e.target.closest('.feature-module')) return;
+      document.querySelectorAll('.feature-module.slid').forEach(o => o.classList.remove('slid'));
+    });
+
+    this.renderHiddenEntry();
+  }
+
+  /**
+   * 根据 hiddenModules 显隐卡片
+   */
+  applyHiddenModules() {
+    document.querySelectorAll('.feature-module[data-module-id]').forEach(fm => {
+      const id = fm.dataset.moduleId;
+      const hidden = this.hiddenModules.includes(id);
+      fm.style.display = hidden ? 'none' : '';
+      if (hidden) fm.classList.remove('slid');
+    });
+  }
+
+  /**
+   * 切换单个模块的隐藏状态并持久化
+   */
+  async toggleHideModule(id, hide) {
+    if (hide) {
+      if (!this.hiddenModules.includes(id)) this.hiddenModules.push(id);
+    } else {
+      this.hiddenModules = this.hiddenModules.filter(x => x !== id);
+    }
+    // 先同步更新 UI（即时响应），再持久化
+    this.applyHiddenModules();
+    this.renderHiddenEntry();
+    // 若管理面板正打开，同步刷新列表
+    if (this.activeSubpageModule === 'hiddenModules') this.renderHiddenModulesPanel();
+    await chrome.storage.local.set({ hiddenModules: this.hiddenModules });
+  }
+
+  /**
+   * 渲染顶部「已隐藏 N 个模块」入口
+   */
+  renderHiddenEntry() {
+    const entry = document.getElementById('hiddenModulesEntry');
+    if (!entry) return;
+    if (this.hiddenModules.length === 0) {
+      entry.style.display = 'none';
+      return;
+    }
+    entry.style.display = '';
+    const countEl = entry.querySelector('.hidden-count');
+    if (countEl) countEl.textContent = this.hiddenModules.length;
+  }
+
+  /**
+   * 渲染隐藏模块管理面板（列出已隐藏模块，可逐个恢复）
+   */
+  renderHiddenModulesPanel() {
+    const container = document.getElementById('hiddenModulesModuleContent');
+    if (!container) return;
+    const names = this.getModuleDataKeys();
+
+    if (this.hiddenModules.length === 0) {
+      container.innerHTML = '<p class="hint" style="padding:16px 4px;">暂无隐藏的模块</p>';
+      return;
+    }
+
+    container.innerHTML = this.hiddenModules.map(id => {
+      const name = (names[id] && names[id].name) || id;
+      return `
+        <div class="hidden-module-item">
+          <span>${name}</span>
+          <button class="btn btn-secondary btn-small" data-show="${id}">显示</button>
+        </div>`;
+    }).join('');
+
+    container.querySelectorAll('[data-show]').forEach(btn => {
+      btn.addEventListener('click', () => this.toggleHideModule(btn.dataset.show, false));
+    });
   }
 
   bindGlobalEvents() {

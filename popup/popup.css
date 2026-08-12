@@ -191,11 +191,19 @@ h2 {
 }
 
 /* Card Style */
+/* 外层行容器：保持不动（不左滑），左滑只作用在内部 .module-inner 上；
+   mouseleave 绑在外层 -> 鼠标离开“这一行”才收起，左滑后点「隐藏」也不会误收起 */
 .feature-module {
+  position: relative;
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+/* 卡片可视层：承载背景/圆角/内边距，左滑时位移 */
+.module-inner {
   background: var(--card-bg);
   border-radius: 12px;
-  padding: 0 16px;
-  margin-bottom: 8px;
+  padding: 16px;
+  transition: transform 0.25s ease;
 }
 
 /* Modules container */
@@ -214,10 +222,6 @@ h2 {
 .modules-container::-webkit-scrollbar-thumb {
   background: rgba(0, 0, 0, 0.2);
   border-radius: 4px;
-}
-
-.feature-module {
-  padding: 16px;
 }
 
 .module-header {
@@ -515,4 +519,110 @@ input[type="text"]:focus, input[type="password"]:focus {
   color: #c7c7cc;
   font-size: 22px;
   font-weight: 400;
+}
+
+/* 模块隐藏（微信式 v3）：
+   - .module-sliver：hover 时滑入、与右缘齐平、与模块等高的「全圆角竖条」，点它 -> 内层左滑
+   - .module-reveal：左滑后出现在右缺口的完整「隐藏」按钮 */
+.module-sliver {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 14px;
+  height: 100%;                       /* 与模块等高 */
+  background: #007aff;                /* 蓝 */
+  border: none;
+  border-top-right-radius: 12px;                /* 四角圆角：自身完整圆角，不靠裁切 */
+  border-bottom-right-radius: 12px;                /* 四角圆角：自身完整圆角，不靠裁切 */
+  cursor: pointer;
+  z-index: 4;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateX(100%);        /* 默认完全移出右侧、被 overflow 裁掉隐藏 */
+  transition: transform .2s cubic-bezier(.4, 0, .2, 1), opacity .15s ease, visibility .15s;
+}
+/* hover：整条滑入、与右缘齐平，完整圆角露出于卡片内（卡片不移动，拖拽/开关照常可点） */
+.feature-module:hover .module-sliver {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateX(0);
+}
+/* 已左滑：隐藏小药丸，只留完整「隐藏」按钮 */
+.feature-module.slid .module-sliver {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+.module-reveal {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 72px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #007aff;                /* 蓝 */
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+  z-index: 3;
+  border: none;
+  border-top-right-radius: 12px;                /* 四角统一圆角 */
+  border-bottom-right-radius: 12px;                /* 四角统一圆角 */
+  transform: translateX(72px);        /* 默认推到卡片右外，被 overflow:hidden 裁切隐藏 */
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;               /* 默认不拦截卡片主体点击 */
+  transition: transform .25s cubic-bezier(.4, 0, .2, 1), opacity .15s ease, visibility .15s;
+}
+/* 已点击细滑块：仅内部 .module-inner 左滑 -72px，外层不动，右侧缺口露出「隐藏」 */
+.feature-module.slid .module-inner { transform: translateX(-72px); }
+.feature-module.slid .module-reveal {
+  transform: translateX(0);
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+/* 顶部「已隐藏 N 个模块」入口 */
+.hidden-modules-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  margin-bottom: 8px;
+  background: var(--card-bg);
+  border-radius: 12px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+.hidden-modules-entry:active {
+  background: #f9f9f9;
+}
+.hidden-modules-entry .hidden-count {
+  font-weight: 600;
+  color: var(--text-main);
+}
+.hidden-modules-entry .enter-icon {
+  font-size: 18px;
+}
+
+/* 隐藏模块管理面板条目 */
+.hidden-module-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 4px;
+  border-bottom: 1px solid var(--list-separator);
+  font-size: 14px;
+  color: var(--text-main);
+}
+.hidden-module-item:last-child {
+  border-bottom: none;
 }
