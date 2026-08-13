@@ -76,13 +76,13 @@ class CredentialFiller extends BaseContentModule {
             if (e.source !== window.parent) return;
             let data;
             try { data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data; } catch { return; }
-            const { type, credential } = data || {};
+            const { type, credential, currentTabKey } = data || {};
             if (type === 'CREDENTIAL_FILLER_FILL') {
                 this.fillCredential(credential);
                 this._clearBlurHandler();
                 this.activeInput = null;
             } else if (type === 'CREDENTIAL_FILLER_COLLECT') {
-                this.collectCurrentCredential();
+                this.collectCurrentCredential(currentTabKey ?? null);
                 this._clearBlurHandler();
                 this.activeInput = null;
             } else if (type === 'CREDENTIAL_FILLER_HIDE') {
@@ -520,7 +520,13 @@ class CredentialFiller extends BaseContentModule {
         const handleCollect = async (e) => {
             e.preventDefault();
             this._isSelecting = true;
-            await this.collectCurrentCredential();
+            const currentTabKey = useTabMode
+                && Number.isInteger(this.activeTabIndex)
+                && this.activeTabIndex >= 0
+                && this.activeTabIndex < namedGroups.length
+                ? namedGroups[this.activeTabIndex]
+                : null;
+            await this.collectCurrentCredential(currentTabKey);
             this.hideCredentialPopup();
         };
 
@@ -726,7 +732,13 @@ class CredentialFiller extends BaseContentModule {
 
         const handleCollect = (ev) => {
             ev.preventDefault();
-            this._iframeSource?.postMessage(JSON.stringify({ type: 'CREDENTIAL_FILLER_COLLECT' }), '*');
+            const currentTabKey = iframeUseTab
+                && Number.isInteger(this.activeTabIndex)
+                && this.activeTabIndex >= 0
+                && this.activeTabIndex < iframeTabGroups.length
+                ? iframeTabGroups[this.activeTabIndex]
+                : null;
+            this._iframeSource?.postMessage(JSON.stringify({ type: 'CREDENTIAL_FILLER_COLLECT', currentTabKey }), '*');
             this.hideCredentialPopup();
         };
         collectBtn.addEventListener('mousedown', handleCollect);
@@ -993,9 +1005,23 @@ class CredentialFiller extends BaseContentModule {
     }
 
     /**
+     * 比较两个标签集合是否等价（忽略顺序、首尾空格、空标签）。
+     */
+    tagsEqual(a, b) {
+        const normalize = (tags) => (Array.isArray(tags) ? tags : (tags ? [tags] : []))
+            .map(tag => String(tag).trim())
+            .filter(Boolean)
+            .sort();
+        const normalizedA = normalize(a);
+        const normalizedB = normalize(b);
+        return normalizedA.length === normalizedB.length
+            && normalizedA.every((tag, index) => tag === normalizedB[index]);
+    }
+
+    /**
      * 在页面内采集当前填写的凭证并直接保存
      */
-    async collectCurrentCredential() {
+    async collectCurrentCredential(currentTabKey = null) {
         const fields = this.scanInputs();
         if (!fields || fields.length === 0) {
             Toast.warning('未检测到已填写的输入框');
@@ -1063,7 +1089,13 @@ class CredentialFiller extends BaseContentModule {
             }
         }
 
-        const existingIdx = project.credentials.findIndex(c => c.username === username);
+        const normalizedTabKey = typeof currentTabKey === 'string'
+            ? currentTabKey.trim()
+            : '';
+        const note = normalizedTabKey ? [normalizedTabKey] : [];
+        const existingIdx = project.credentials.findIndex(c => (
+            c.username === username && this.tagsEqual(c.note, note)
+        ));
         let msg = '';
         if (existingIdx >= 0) {
             project.credentials[existingIdx].password = password;
@@ -1076,7 +1108,7 @@ class CredentialFiller extends BaseContentModule {
                 username,
                 password,
                 customFields,
-                note: [],
+                note,
                 status: 'active',
                 disabledReason: ''
             });

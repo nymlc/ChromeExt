@@ -1,8 +1,8 @@
 # 极客百宝箱 (Geek Toolbox) Chrome 扩展
 
-一个 **Manifest V3** 的模块化浏览器助手，把「密码显示、凭证填充、MasterGo 导航」三套工具整合在一起。代码结构清晰、扩展性强，新增功能只需继承基类并在配置中注册。
+一个 **Manifest V3** 的模块化浏览器助手，把「密码显示、凭证填充、MasterGo 导航、时间戳格式化」四套工具整合在一起。代码结构清晰、扩展性强，新增功能只需继承基类并在配置中注册。
 
-> 作者：林晨 · 当前版本：v1.0.3
+> 作者：林晨 · 当前版本：v1.0.9
 
 ## 项目结构
 
@@ -60,6 +60,28 @@ ChromeExt/
 - 默认 **Tab 池模式**：每个菜单项一个标签页、统一收进 tab 组、LRU 淘汰（`TabPool` + `background/managers/TabPoolManager.js`）。
 - 另含一套 **iframe 池模式**代码（`IframePool` + `LRUCache`），目前为休眠状态（见下方「已知设计说明」）。
 
+### 4. 时间戳格式化（TimestampFormatter）
+- **网页内复制即显示**：在网页中复制数字时间戳或日期文本，浮层紧跟光标即时弹出（无需权限、不弹框）。
+- **任意处复制（终端/编辑器/聊天等）即显示**：在别处复制时间戳后，在任意页面 / 输入框**粘贴**该内容，浮层即自动弹出（置中央）。粘贴事件直接携带文本，无需读取系统剪贴板、不弹权限框、也**不在页面注入任何图标**。
+  > 技术说明：Chrome 不允许后台无感轮询剪贴板——Service Worker 无 `navigator.clipboard`、Offscreen 文档无法聚焦导致 `readText` 必失败、内容脚本轮询又会逐页弹「查看复制到剪贴板的文字和图片」权限框。因此「任意处复制」采用「粘贴即识别」——粘贴是用户手势且内容随事件直送，是最稳且不打扰的方式（零图标、无需 `clipboard-read` 权限）。
+- **其它应用复制 → 网页粘贴即识别**：在终端/编辑器/聊天等任意处复制的时间戳，回到网页或输入框 `粘贴` 即可自动弹出格式化浮层（零图标、无需 `clipboard-read` 权限）。
+- 支持识别：
+  - 整数时间戳：10 位（秒）、13 位（毫秒）、16 位（微秒）、19 位（纳秒）。
+  - 日期/时间字符串：`2026-08-06T09:45:03Z`、`2026-08-06 09:45:03`、`2026/08/06 09:45:03` 等常见格式。
+- 浮层展示**本地时间、星期、UTC 时间、相对时间**；点击任意一行即复制。
+- 交互细节：网页内复制浮层定位取光标坐标（鼠标 / 右键菜单均覆盖），纯键盘复制回退到选区尾端；浮层 **8 秒后自动消失**，也可按 `Esc` 或点击空白处立即关闭。跨应用复制请直接粘贴触发，无需任何页面图标。
+- 为防止误触普通数字，整数模式只接受上述四种规范长度（如 11 位手机号不会触发）。
+
+### 5. 二维码工具（QrCodeTool）
+- **Popup 工具面板**：扩展图标弹出页内置「二维码工具」模块。
+  - **生成**：输入文本 / 网址，实时预览二维码，可下载 PNG。
+  - **解码**：上传本地图片或直接在面板内粘贴图片，使用 jsQR 解析，结果可一键复制。
+- **网页内右键触发**（无需打开面板）：
+  - 在网页中**选中文本**右键 →「为选中文本生成二维码」→ 页面浮层展示二维码并支持下载。
+  - 在网页任意位置右键 →「解码二维码」：若右键的是 `<img>` 二维码，直接抓取该图解码；若右键的是**背景图 / Canvas 渲染的二维码**（登录码、支付码常见），则自动整页扫描所有图片与 canvas 找出二维码并解码。图片均由后台 Service Worker 抓取（扩展具备 host 权限，绕过页面 CORS 限制），因此跨域图片也能正常解码。
+- 第三方库：`qrcode`（生成）、`jsQR`（解码），均以 UMD 单文件形式置于 `lib/` 由打包脚本收录。
+- 受三层开关控制：模块总开关 `qrCodeToolModuleEnabled`、网站级禁用 `disabledQrCodeToolSites`。
+
 ## 三层控制系统
 
 所有 Content 模块共用 `BaseContentModule.checkModuleEnabled()`，依次判断：
@@ -107,6 +129,10 @@ popup (管理面板)
 | MasterGo 节点 | `mastergoNavNodes` | `Array` |
 | MasterGo 折叠/侧/容量/主题 | `mastergoNavCollapsed` / `mastergoNavSide` / `mastergoNavPoolCapacity` / `mastergoNavTheme` | `Boolean` / `'left'\|'right'` / `Number` / `'dark'\|'light'` |
 | MasterGo 模块启用 | `masterGoNavModuleEnabled` | `Boolean` |
+| 时间戳模块全局启用 | `timestampFormatterModuleEnabled` | `Boolean` |
+| 时间戳模块网站禁用 | `disabledTimestampFormatterSites` | `Array<string>` |
+| 时间戳显示 UTC | `timestampFormatterShowUTC` | `Boolean` |
+| 时间戳显示相对时间 | `timestampFormatterShowRelative` | `Boolean` |
 | Popup 模块顺序 | `moduleOrder` | `Array<string>` |
 
 > 凭证（用户名/密码）以**明文**存于 `chrome.storage.local`，依赖 Chrome 存储沙箱保护。对高安全场景建议后续增加加密层（本版本未做）。

@@ -121,6 +121,23 @@ class CredentialManager extends BaseModule {
         return Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
     }
 
+    /**
+     * 比较两个标签集合是否等价（忽略顺序、首尾空格、空标签）。
+     * 用于凭证判重：用户名相同 + 标签相同 => 视为同一条（覆盖）；标签不同 => 视为不同条目（并存）。
+     */
+    tagsEqual(a, b) {
+        // 兼容 note 为字符串（如 'A'）或数组（如 ['A']）两种存储形态，
+        // 与渲染层展示逻辑保持一致：非数组且为真值则视为单元素数组。
+        const norm = (arr) => (Array.isArray(arr) ? arr : (arr ? [arr] : []))
+            .map(t => String(t).trim())
+            .filter(Boolean)
+            .sort();
+        const na = norm(a);
+        const nb = norm(b);
+        if (na.length !== nb.length) return false;
+        return na.every((t, i) => t === nb[i]);
+    }
+
     // ==================== 渲染 ====================
 
     render() {
@@ -414,6 +431,15 @@ class CredentialManager extends BaseModule {
         });
         if (hasUngrouped) tabGroups.push('');
         const useTabMode = this.credentialViewMode === 'tab' && tabGroups.length > 1;
+        // 保存 UI 实际展示的分组，供「从页面采集」时判定当前标签使用
+        this.tabGroups = tabGroups;
+
+        // [诊断] 渲染标签栏时的状态，便于和采集时对比
+        if (typeof console !== 'undefined') {
+            console.log('[render] useTabMode=', useTabMode, ' credentialViewMode=', this.credentialViewMode,
+                ' tabGroups=', JSON.stringify(tabGroups), ' activeTabIndex=', this.activeTabIndex,
+                ' project=', project.name, ' 显示标签数=', useTabMode ? tabGroups.length : 0);
+        }
 
         if (project.credentials.length > 0) {
             const viewToggleRow = document.createElement('div');
@@ -584,6 +610,8 @@ class CredentialManager extends BaseModule {
                 const tabLabel = tabKey === '' ? '其他' : tabKey;
                 const tab = document.createElement('div');
                 const isActive = idx === this.activeTabIndex;
+                tab.dataset.tabKey = tabKey;
+                if (isActive) tab.classList.add('cmf-active-tab');
                 tab.textContent = tabLabel;
                 tab.style.cssText = `
                     padding: 5px 12px; font-size: 12px; cursor: pointer; white-space: nowrap;
@@ -756,16 +784,18 @@ class CredentialManager extends BaseModule {
                 cred.customFields = customFields;
                 cred.note = noteWrapper.getTags();
             } else {
-                // 用户名重复则覆盖
-                const existingIdx = this.currentProject.credentials.findIndex(c => c.username === username);
+                // 用户名 + 标签 都相同才视为重复（覆盖）；标签不同则当作不同条目并存
+                const newTags = noteWrapper.getTags();
+                const existingIdx = this.currentProject.credentials.findIndex(c =>
+                    c.username === username && !!username && this.tagsEqual(c.note, newTags));
                 if (existingIdx >= 0) {
                     const existing = this.currentProject.credentials[existingIdx];
                     existing.label = labelInput.input.value.trim() || existing.label;
                     existing.username = username;
                     existing.password = password;
                     existing.customFields = customFields;
-                    existing.note = noteWrapper.getTags();
-                    Toast.success('同名用户已存在，已覆盖更新');
+                    existing.note = newTags;
+                    Toast.success('同名且同标签，已覆盖更新');
                 } else {
                     this.currentProject.credentials.push({
                         id: this.generateId(),
@@ -1121,8 +1151,9 @@ class CredentialManager extends BaseModule {
                 selector: f.selector
             }));
 
-            // 根据当前页面 title 匹配或自动创建项目
-            let project = this.findProjectByTitle(this.pageTitle);
+            // 采集的目标项目 = 用户当前正在查看的项目（与详情页 UI 完全一致）。
+            // 若因异常缺失，则回退到按页面 title 自动匹配/新建，保证不崩溃。
+            let project = this.currentProject || this.findProjectByTitle(this.pageTitle);
             if (!project) {
                 project = {
                     id: this.generateId(),
@@ -1135,7 +1166,55 @@ class CredentialManager extends BaseModule {
                 this.projects.push(project);
             }
 
-            // 保存凭证到项目（用户名重复则覆盖）
+            // 采集时若正处于「标签」视图的某一分组下，则把当前正在查看的标签带入凭证，
+            // 并仅在「该标签下」判断是否存在同名账号：有则覆盖、无则采集新增。
+            // 直接读取渲染层实际展示的 tabGroups[activeTabIndex]，避免按 project.credentials
+            // 重算时漏掉「当前正在看、但还没采过凭证」的标签，导致采到未分组或错标签。
+            // ===== [诊断] 采集全链路（同时输出到控制台 + popup 底部调试条）=====
+            const dbg = [];
+            const L = (label, ...args) => {
+                const s = [label, ...args.map(a => (typeof a === 'string' ? a : JSON.stringify(a)))].join(' ');
+                if (typeof console !== 'undefined') console.log(s);
+                dbg.push(s);
+            };
+            const showDebug = () => {
+                try {
+                    let el = document.getElementById('cmfScanDebug');
+                    if (!el) {
+                        el = document.createElement('div');
+                        el.id = 'cmfScanDebug';
+                        el.style.cssText = 'position:fixed;left:6px;right:6px;bottom:6px;max-height:42%;overflow:auto;background:#fff8e1;border:1px solid #f0c36d;color:#222;font:11px/1.35 monospace;padding:6px 8px;border-radius:8px;z-index:2147483647;white-space:pre-wrap;box-shadow:0 2px 10px rgba(0,0,0,.25)';
+                        (document.body || document.documentElement).appendChild(el);
+                    }
+                    el.textContent = '[采集诊断 v1.0.66]\n' + dbg.join('\n');
+                } catch (e) {}
+            };
+
+            const contentEl = document.getElementById('credentialModuleContent');
+            const activeEl0 = document.querySelector('#credentialModuleContent .cmf-active-tab');
+            L('[scanAndSave] === 采集开始 ===');
+            L('[scanAndSave] credentialViewMode=', this.credentialViewMode, ' currentView=', this.currentView,
+                ' currentProject=', this.currentProject && this.currentProject.name, ' activeTabIndex=', this.activeTabIndex);
+            L('[scanAndSave] tabGroups=', this.tabGroups, ' contentEl存在=', !!contentEl,
+                ' activeTabEl存在=', !!activeEl0, ' activeTabKey=', activeEl0 ? (activeEl0.dataset ? activeEl0.dataset.tabKey : '无dataset') : '无active元素');
+            L('[scanAndSave] 当前项目全部凭证(前5条):', (project.credentials || []).slice(0, 5).map(c => ({ u: c.username, note: c.note, status: c.status })));
+
+            let currentTabKey = '';
+            if (this.credentialViewMode === 'tab') {
+                const aEl = document.querySelector('#credentialModuleContent .cmf-active-tab');
+                if (aEl && aEl.dataset.tabKey !== undefined) {
+                    currentTabKey = aEl.dataset.tabKey;
+                    L('[scanAndSave] 来源=DOM高亮标签, currentTabKey=', currentTabKey);
+                } else if (Array.isArray(this.tabGroups) && this.tabGroups.length) {
+                    const idx = (this.activeTabIndex >= 0 && this.activeTabIndex < this.tabGroups.length) ? this.activeTabIndex : 0;
+                    currentTabKey = this.tabGroups[idx] || '';
+                    L('[scanAndSave] 来源=状态兜底(tabGroups[' + idx + ']), currentTabKey=', currentTabKey, ' viewMode=tab但DOM无高亮');
+                }
+            } else {
+                L('[scanAndSave] 来源=无(非tab模式, currentTabKey留空) credentialViewMode=', this.credentialViewMode);
+            }
+
+            // 保存凭证到项目（用户名 + 标签 都相同才覆盖；标签不同则并存）
             const username = usernameField ? usernameField.value : '';
             const newCred = {
                 id: this.generateId(),
@@ -1143,12 +1222,17 @@ class CredentialManager extends BaseModule {
                 username,
                 password: passwordField ? passwordField.value : '',
                 customFields,
-                note: [],
+                note: currentTabKey ? [currentTabKey] : [],
                 status: 'active',
                 disabledReason: ''
             };
 
-            const existingIdx = project.credentials.findIndex(c => c.username === username && username);
+            L('[scanAndSave] currentTabKey=', currentTabKey, ' username=', username,
+                ' 同username候选=', project.credentials.filter(c => c.username === username)
+                    .map(c => ({ id: c.id, note: c.note, status: c.status })));
+
+            const existingIdx = project.credentials.findIndex(c =>
+                c.username === username && !!username && this.tagsEqual(c.note, newCred.note));
             if (existingIdx >= 0) {
                 // 保留原有 id、status 和 note
                 newCred.id = project.credentials[existingIdx].id;
@@ -1156,10 +1240,12 @@ class CredentialManager extends BaseModule {
                 newCred.disabledReason = project.credentials[existingIdx].disabledReason;
                 newCred.note = project.credentials[existingIdx].note || [];
                 project.credentials[existingIdx] = newCred;
-                Toast.success('凭证已覆盖更新');
+                L('[scanAndSave] 最终分支=覆盖 (existingIdx=', existingIdx, ' 命中note=', project.credentials[existingIdx].note, ')');
+                Toast.success(currentTabKey ? `「${currentTabKey}」下已存在同名账号，已覆盖更新` : '凭证已覆盖更新');
             } else {
                 project.credentials.push(newCred);
-                Toast.success('凭证已保存到项目：' + project.name);
+                L('[scanAndSave] 最终分支=新建 (note=', newCred.note, ')');
+                Toast.success(currentTabKey ? `凭证已采集到「${currentTabKey}」` : '凭证已保存到项目：' + project.name);
             }
 
             project.updatedAt = Date.now();
@@ -1167,6 +1253,7 @@ class CredentialManager extends BaseModule {
             this.currentProject = project;
             this.currentView = 'detail';
             this.render();
+            showDebug();
 
         } catch (e) {
             Toast.error('采集失败，请刷新页面后重试');

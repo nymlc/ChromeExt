@@ -54,6 +54,9 @@ class PopupManager {
     this.bindGlobalEvents();
     this.updateGlobalUI();
 
+    // 版本号从 manifest 动态注入（避免写死，manifest 为唯一版本源）
+    this.renderVersion();
+
     // 初始化密码模块
     this.modules.passwordToggle = new PasswordToggle();
     await this.modules.passwordToggle.init();
@@ -79,6 +82,20 @@ class PopupManager {
 
     // 初始化模块隐藏功能
     await this.initModuleHiding();
+  }
+
+  // 版本号从 manifest 动态读取并注入页脚（manifest 为唯一版本源，避免写死）
+  renderVersion() {
+    const el = document.querySelector('.version');
+    if (!el) return;
+    let v = '';
+    try {
+      const manifest = chrome.runtime.getManifest();
+      v = (manifest && manifest.version) || '';
+    } catch (e) {
+      v = '';
+    }
+    el.textContent = v ? `v${v}` : '';
   }
 
   initNavigation() {
@@ -692,8 +709,15 @@ class PopupManager {
     }
 
     const result = await chrome.storage.local.get(keysToExport);
+    let appVersion = '';
+    try {
+      const manifest = chrome.runtime.getManifest();
+      appVersion = (manifest && manifest.version) || '';
+    } catch (e) {
+      appVersion = '';
+    }
     const data = {
-      version: '1.0.0',
+      version: appVersion,
       exportedAt: new Date().toISOString(),
       modules: selected,
       data: result
