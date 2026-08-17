@@ -18,7 +18,8 @@ ChromeExt/
 │       ├── BaseModule.js            # Content 模块基类（三层开关 / 启用检查）
 │       ├── PasswordHelper.js        # 密码显示模块
 │       ├── CredentialFiller.js      # 凭证填充模块（最复杂）
-│       └── MasterGoNav.js          # MasterGo 悬浮树状导航（仅 mastergo.com）
+│       ├── ImagePreview.js          # 复制/粘贴图片地址预览
+│       └── MasterGoNav.js           # MasterGo 悬浮树状导航（仅 mastergo.com）
 ├── popup/                            # 扩展管理面板（Popup）
 │   ├── popup.js                      # Popup 主入口：PopupManager
 │   ├── popup.html / popup.css        # 面板 UI
@@ -72,7 +73,14 @@ ChromeExt/
 - 交互细节：网页内复制浮层定位取光标坐标（鼠标 / 右键菜单均覆盖），纯键盘复制回退到选区尾端；浮层 **8 秒后自动消失**，也可按 `Esc` 或点击空白处立即关闭。跨应用复制请直接粘贴触发，无需任何页面图标。
 - 为防止误触普通数字，整数模式只接受上述四种规范长度（如 11 位手机号不会触发）。
 
-### 5. 二维码工具（QrCodeTool）
+### 5. 图片地址预览（ImagePreview）
+- 在网页中复制图片地址或 `data:image/...` 内容（包括 base64、URI 编码 SVG）时，会先用浏览器原生图片加载验证；验证成功后在鼠标或选区附近显示预览。
+- 从终端、编辑器、聊天工具等其它应用复制图片地址后，回到网页或输入框粘贴时也会验证并居中预览；不会读取系统剪贴板，也不会阻止原始粘贴。
+- 同源 `blob:` 地址会尽力预览，但受创建页面、存储分区和 `URL.revokeObjectURL()` 生命周期限制，失败时静默忽略。
+- 裸 base64、非图片 `data:`、不安全协议、加载失败的地址、超过 2 MiB 的 data URL 或超过 16 MP 的图片均会静默忽略；不新增 `clipboard-read`、主机权限或后台抓取。
+- 受三层开关控制：模块总开关 `imagePreviewModuleEnabled`、网站级禁用 `disabledImagePreviewSites`，并可设置最大预览尺寸。
+
+### 6. 二维码工具（QrCodeTool）
 - **Popup 工具面板**：扩展图标弹出页内置「二维码工具」模块。
   - **生成**：输入文本 / 网址，实时预览二维码，可下载 PNG。
   - **解码**：上传本地图片或直接在面板内粘贴图片，使用 jsQR 解析，结果可一键复制。
@@ -133,6 +141,9 @@ popup (管理面板)
 | 时间戳模块网站禁用 | `disabledTimestampFormatterSites` | `Array<string>` |
 | 时间戳显示 UTC | `timestampFormatterShowUTC` | `Boolean` |
 | 时间戳显示相对时间 | `timestampFormatterShowRelative` | `Boolean` |
+| 图片地址预览模块启用 | `imagePreviewModuleEnabled` | `Boolean` |
+| 图片地址预览网站禁用 | `disabledImagePreviewSites` | `Array<string>` |
+| 图片最大预览尺寸 | `imagePreviewMaxSize` | `Number`（px） |
 | Popup 模块顺序 | `moduleOrder` | `Array<string>` |
 
 > 凭证（用户名/密码）以**明文**存于 `chrome.storage.local`，依赖 Chrome 存储沙箱保护。对高安全场景建议后续增加加密层（本版本未做）。

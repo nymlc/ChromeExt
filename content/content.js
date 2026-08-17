@@ -15,6 +15,7 @@ class ContentManager {
       credentialFiller: null,
       timestampFormatter: null,
       qrCodeTool: null,
+      imagePreview: null,
     };
     this._subscribed = false;
     this._unsub = null;
@@ -42,6 +43,7 @@ class ContentManager {
     await this.initCredentialModule();
     await this.initTimestampModule();
     await this.initQrCodeModule();
+    await this.initImagePreviewModule();
   }
 
   _subscribeOnce() {
@@ -80,6 +82,14 @@ class ContentManager {
     }
     this.modules.qrCodeTool = new QrCodeTool();
     await this.modules.qrCodeTool.init();
+  }
+
+  async initImagePreviewModule() {
+    if (this.modules.imagePreview) {
+      this.modules.imagePreview.destroy();
+    }
+    this.modules.imagePreview = new ImagePreview();
+    await this.modules.imagePreview.init();
   }
 
   onStorageChange(changes) {
@@ -227,6 +237,37 @@ class ContentManager {
         }
       }
     }
+
+    // 监听图片预览模块总开关变化
+    if (changes.imagePreviewModuleEnabled) {
+      const enabled = changes.imagePreviewModuleEnabled.newValue;
+      if (enabled) {
+        this.initImagePreviewModule();
+      } else if (this.modules.imagePreview) {
+        this.modules.imagePreview.destroy();
+        this.modules.imagePreview = null;
+      }
+    }
+
+    // 监听图片预览模块网站禁用列表变化
+    if (changes.disabledImagePreviewSites) {
+      const disabledSites = changes.disabledImagePreviewSites.newValue || [];
+      const wasDisabled = changes.disabledImagePreviewSites.oldValue?.includes(hostname);
+      const isDisabled = disabledSites.includes(hostname);
+      if (wasDisabled && !isDisabled) {
+        this.initImagePreviewModule();
+      } else if (!wasDisabled && isDisabled) {
+        if (this.modules.imagePreview) {
+          this.modules.imagePreview.destroy();
+          this.modules.imagePreview = null;
+        }
+      }
+    }
+
+    // 监听图片预览尺寸配置变化，即时更新当前页面浮层
+    if (changes.imagePreviewMaxSize) {
+      this.modules.imagePreview?.applyStorageChanges(changes);
+    }
   }
 
   destroy() {
@@ -239,6 +280,8 @@ class ContentManager {
     this.modules.passwordHelper = null;
     this.modules.credentialFiller = null;
     this.modules.timestampFormatter = null;
+    this.modules.qrCodeTool = null;
+    this.modules.imagePreview = null;
     // 保留存储订阅：全局重新启用时仍需监听；重复 init 由 _subscribeOnce 去重
   }
 }

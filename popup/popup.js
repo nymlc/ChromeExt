@@ -16,8 +16,9 @@ class PopupManager {
       passwordToggle: null,
       credentialManager: null,
       masterGoManager: null,
+      imagePreview: null,
     };
-    this.activeSubpageModule = null; // 'credential' | 'masterGoNav' | 'password' | 'timestampFormatter' | 'qrCodeTool' | 'hiddenModules'
+    this.activeSubpageModule = null; // 'credential' | 'masterGoNav' | 'password' | 'timestampFormatter' | 'imagePreview' | 'qrCodeTool' | 'hiddenModules'
 
     // 子页内容容器映射（data-driven，openSubpage / _syncSubpageHeight 共用）
     this.contentMap = {
@@ -25,6 +26,7 @@ class PopupManager {
       masterGoNav: 'masterGoNavModuleContent',
       password: 'passwordModuleContent',
       timestampFormatter: 'timestampFormatterModuleContent',
+      imagePreview: 'imagePreviewModuleContent',
       qrCodeTool: 'qrCodeToolModuleContent',
       hiddenModules: 'hiddenModulesModuleContent',
     };
@@ -69,6 +71,9 @@ class PopupManager {
 
     this.modules.timestampFormatter = new TimestampFormatter();
     await this.modules.timestampFormatter.init();
+
+    this.modules.imagePreview = new ImagePreview();
+    await this.modules.imagePreview.init();
 
     this.modules.qrCodeTool = new QrCodeTool();
     await this.modules.qrCodeTool.init();
@@ -116,6 +121,7 @@ class PopupManager {
     bindEntry(document.getElementById('masterGoNavModuleEntry'), 'masterGoNav', 'MasterGo 导航');
     bindEntry(document.getElementById('passwordModuleEntry'), 'password', '密码显示');
     bindEntry(document.getElementById('timestampFormatterModuleEntry'), 'timestampFormatter', '时间戳格式化');
+    bindEntry(document.getElementById('imagePreviewModuleEntry'), 'imagePreview', '图片预览');
     bindEntry(document.getElementById('qrCodeToolModuleEntry'), 'qrCodeTool', '二维码工具');
 
     // 顶部「已隐藏 N 个模块」入口
@@ -596,9 +602,17 @@ class PopupManager {
         name: '时间戳格式化',
         keys: ['timestampFormatterModuleEnabled', 'disabledTimestampFormatterSites', 'timestampFormatterShowUTC', 'timestampFormatterShowRelative']
       },
+      imagePreview: {
+        name: '图片预览',
+        keys: [
+          'imagePreviewModuleEnabled',
+          'disabledImagePreviewSites',
+          'imagePreviewMaxSize'
+        ]
+      },
       global: {
         name: '全局设置',
-        keys: ['globalDisabledSites', 'moduleOrder']
+        keys: ['globalDisabledSites', 'moduleOrder', 'hiddenModules']
       }
     };
   }

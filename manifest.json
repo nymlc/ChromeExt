@@ -56,6 +56,7 @@
         "lib/jsqr.min.js",
         "lib/qrcode.min.js",
         "content/modules/BaseModule.js",
+        "content/modules/ImagePreview.js",
         "content/modules/PasswordHelper.js",
         "content/modules/CredentialFiller.js",
         "content/modules/TimestampFormatter.js",
