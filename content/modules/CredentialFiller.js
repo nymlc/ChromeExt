@@ -948,6 +948,9 @@ class CredentialFiller extends BaseContentModule {
     scanInputs() {
         const allInputs = document.querySelectorAll('input');
         const fields = [];
+        // 与浮层展示/填充共用同一个「密码框前最近文本框」兜底，
+        // 避免无语义的账号框在采集时被错误归类为自定义字段。
+        const fallbackUsernameInput = this.findUsernameInput();
 
         allInputs.forEach(input => {
             const style = window.getComputedStyle(input);
@@ -959,7 +962,10 @@ class CredentialFiller extends BaseContentModule {
             if (['hidden', 'submit', 'button', 'checkbox', 'radio', 'file', 'image', 'reset'].includes(type)) return;
 
             const selector = this.generateSelector(input);
-            const fieldType = this.detectFieldType(input);
+            let fieldType = this.detectFieldType(input);
+            if (input === fallbackUsernameInput && fieldType === 'other') {
+                fieldType = 'username';
+            }
             const label = input.placeholder || input.name || input.id || type;
 
             if (fieldType === 'password') {
@@ -1042,8 +1048,9 @@ class CredentialFiller extends BaseContentModule {
         }
 
         const username = usernameField ? usernameField.value.trim() : '';
-        const password = passwordField ? passwordField.value.trim() : '';
-        if (!username || !password) {
+        // 密码必须保留原始值；trim 会篡改合法的首尾空格密码。
+        const password = passwordField ? passwordField.value : '';
+        if (!username || password.length === 0) {
             Toast.warning('用户名和密码必须都填写完整才能采集');
             return;
         }
