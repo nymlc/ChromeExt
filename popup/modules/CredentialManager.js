@@ -16,6 +16,7 @@ class CredentialManager extends BaseModule {
         this.credentialViewMode = 'tab'; // tab | list，默认 tab
         this.activeTabIndex = 0;         // 当前激活的 Tab 索引
         this.activeTagKey = null;        // 当前激活标签，避免标签顺序变化后串组
+        this.suppressNativeAutofill = true; // 默认抑制页面登录框聚焦时的 Chrome 原生密码建议
     }
 
     async init() {
@@ -38,6 +39,10 @@ class CredentialManager extends BaseModule {
         if (prefResult.credentialViewMode) {
             this.credentialViewMode = prefResult.credentialViewMode;
         }
+
+        // 读取「抑制原生密码建议」偏好（默认开启；false 才关闭）
+        const suppressResult = await chrome.storage.local.get(['suppressNativeAutofill']);
+        this.suppressNativeAutofill = suppressResult.suppressNativeAutofill !== false;
 
         // 绑定模块开关事件
         this.bindModuleSwitch();
@@ -137,6 +142,8 @@ class CredentialManager extends BaseModule {
         if (!container) return;
 
         container.innerHTML = '';
+        // 顶部常驻：全局偏好（抑制页面登录框的原生 Chrome 密码建议），各视图通用
+        this._renderGlobalPrefs(container);
         switch (this.currentView) {
             case 'list':
                 this.renderProjectList(container);
@@ -148,6 +155,39 @@ class CredentialManager extends BaseModule {
                 this.renderCredentialEdit(container);
                 break;
         }
+    }
+
+    /**
+     * 渲染顶部常驻的全局偏好行（抑制页面登录框聚焦时的 Chrome 原生密码建议）。
+     * 通过 StorageState 广播，content 脚本会实时收到开关变化并应用/还原。
+     */
+    _renderGlobalPrefs(container) {
+        const row = document.createElement('div');
+        row.className = 'setting-item';
+        row.style.cssText = 'margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #eee;';
+
+        const label = document.createElement('span');
+        label.textContent = '抑制页面登录框的原生密码建议';
+        label.title = '开启后，聚焦被识别的用户名/密码框时不再弹出 Chrome 自带的密码管理器建议（与扩展浮层冲突时可关闭）';
+
+        const sw = document.createElement('label');
+        sw.className = 'switch';
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.id = 'suppressNativeAutofill';
+        input.checked = this.suppressNativeAutofill;
+        input.addEventListener('change', async () => {
+            this.suppressNativeAutofill = input.checked;
+            await chrome.storage.local.set({ suppressNativeAutofill: input.checked });
+        });
+        const slider = document.createElement('span');
+        slider.className = 'slider';
+        sw.appendChild(input);
+        sw.appendChild(slider);
+
+        row.appendChild(label);
+        row.appendChild(sw);
+        container.appendChild(row);
     }
 
     /**

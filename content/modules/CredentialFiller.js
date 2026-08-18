@@ -24,6 +24,8 @@ class CredentialFiller extends BaseContentModule {
         this.credentialViewMode = 'tab'; // tab | list，默认 tab
         this.activeTabIndex = 0;
         this.activeTagKey = null;
+        this.suppressNativeAutofill = true; // 是否抑制页面登录框的原生 Chrome 密码建议（默认开启）
+        this._unsubSuppress = null;
     }
 
     get currentProject() { return this._currentProject; }
@@ -42,6 +44,13 @@ class CredentialFiller extends BaseContentModule {
 
         // 根据页面 title 匹配项目
         await this.matchProject();
+
+        // 读取「抑制原生密码建议」偏好（默认开启），并订阅变更实时生效
+        try {
+            const pref = await chrome.storage.local.get(['suppressNativeAutofill']);
+            this.suppressNativeAutofill = pref.suppressNativeAutofill !== false;
+        } catch (e) { /* 默认开启 */ }
+        this._subscribeSuppressSetting();
 
         this.setupInputListeners();
         this._startRetryScanning();
@@ -289,6 +298,15 @@ class CredentialFiller extends BaseContentModule {
         if (this.processedInputs.has(input)) return;
         this.processedInputs.add(input);
 
+        // 抑制 Chrome 原生密码管理器在聚焦登录框时弹出的建议下拉。
+        // autocomplete 是内容脚本唯一可控的杠杆：用随机 token（用户名框）+
+        // new-password（密码框）绕过 Chrome「对登录表单忽略 autocomplete=off」的启发式，
+        // 可靠压住原生建议，避免与扩展自带浮层重复弹出。
+        const fType = this.detectFieldType(input);
+        if (fType === 'username' || fType === 'password') {
+            if (this.suppressNativeAutofill) this._suppressNativeAutofill(input, fType);
+        }
+
         input.addEventListener('focus', () => this.tryShowPopup(input));
         input.addEventListener('click', () => this.tryShowPopup(input));
 
@@ -296,6 +314,66 @@ class CredentialFiller extends BaseContentModule {
         if (document.activeElement === input) {
             this.tryShowPopup(input);
         }
+    }
+
+    /**
+     * 抑制 Chrome 原生密码管理器对该输入框的建议下拉。
+     * 记住原始 autocomplete，写到 data-gtb-ac，便于 cleanup 时还原。
+     * @param {HTMLInputElement} input
+     * @param {'username'|'password'} fType
+     */
+    _suppressNativeAutofill(input, fType) {
+        if (input.dataset.gtbAc !== undefined) return; // 已处理过
+        input.dataset.gtbAc = input.getAttribute('autocomplete') || '';
+        if (fType === 'password') {
+            // new-password 让 Chrome 将其视为“设置新密码”框，不提供已存密码、不弹建议
+            input.setAttribute('autocomplete', 'new-password');
+        } else {
+            // 随机 token：Chrome 无法识别为已知登录语义，等同于 off，且不触发“忽略 off”启发式
+            input.setAttribute('autocomplete', 'gtb-' + Math.random().toString(36).slice(2, 10));
+        }
+    }
+
+    /**
+     * 订阅「抑制原生密码建议」开关：popup 改动 storage 后经 StorageState 广播，
+     * 这里实时对所有页面登录框应用或还原，无需刷新页面。
+     */
+    _subscribeSuppressSetting() {
+        if (typeof StorageState === 'undefined') return;
+        try { StorageState.init(); } catch (e) { /* 忽略 */ }
+        this._unsubSuppress = StorageState.subscribe((changes) => {
+            if (!Object.prototype.hasOwnProperty.call(changes, 'suppressNativeAutofill')) return;
+            const on = changes.suppressNativeAutofill.newValue !== false;
+            this.suppressNativeAutofill = on;
+            if (on) this._applySuppressionToAllInputs();
+            else this._restoreAllSuppressed();
+        });
+    }
+
+    /**
+     * 对当前页面所有尚未抑制的登录框执行抑制（开关打开或被打开时调用）。
+     */
+    _applySuppressionToAllInputs() {
+        document.querySelectorAll(
+            'input[type="text"], input[type="email"], input[type="password"], input[type="tel"], input:not([type])'
+        ).forEach(inp => {
+            const t = this.detectFieldType(inp);
+            if ((t === 'username' || t === 'password') && inp.dataset.gtbAc === undefined) {
+                this._suppressNativeAutofill(inp, t);
+            }
+        });
+    }
+
+    /**
+     * 还原所有被本扩展抑制过的输入框的 autocomplete（开关关闭或 cleanup 时调用）。
+     */
+    _restoreAllSuppressed() {
+        document.querySelectorAll('input[data-gtb-ac]').forEach(inp => {
+            const orig = inp.dataset.gtbAc;
+            if (orig === '') inp.removeAttribute('autocomplete');
+            else inp.setAttribute('autocomplete', orig);
+            delete inp.dataset.gtbAc;
+        });
     }
 
     /**
@@ -1229,6 +1307,10 @@ class CredentialFiller extends BaseContentModule {
             this._parentMessageHandler = null;
         }
         this.processedInputs = new WeakSet();
+        // 还原被本扩展改为抑制原生密码建议的输入框的 autocomplete 属性
+        this._restoreAllSuppressed();
+        // 退订「抑制原生密码建议」开关监听
+        if (this._unsubSuppress) { this._unsubSuppress(); this._unsubSuppress = null; }
         console.log('凭证填充功能已清理');
     }
 
