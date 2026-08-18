@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "极客百宝箱",
-  "version": "1.0.69",
+  "version": "1.0.71",
   "description": "集成了多项实用工具的全能浏览器助手",
   "permissions": [
     "activeTab",
@@ -9,7 +9,7 @@
     "storage",
     "tabs",
     "tabGroups",
-    "clipboard-write",
+    "clipboardWrite",
     "contextMenus"
   ],
   "commands": {

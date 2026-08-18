@@ -67,6 +67,11 @@ class CredentialFiller extends BaseContentModule {
                 // 重新扫描页面上的输入框并绑定
                 this.setupInputListeners();
                 sendResponse({ success: true });
+            } else if (request.action === 'credentialViewModeChanged') {
+                // popup 切换了标签/列表模式：更新内存值，若浮动弹框正显示则按新模式即时重渲染
+                if (request.mode) this.credentialViewMode = request.mode;
+                if (this.activeInput) this.showCredentialPopup(this.activeInput);
+                sendResponse({ success: true });
             }
             return true;
         });
@@ -379,10 +384,18 @@ class CredentialFiller extends BaseContentModule {
             });
         });
         const hasUngroupedMain = sorted.some(c => CredentialTagUtils.normalizeTags(c.note).length === 0);
-        const tabGroups = hasUngroupedMain ? [...namedGroups, ''] : namedGroups;
+        // 标签模式下始终保留「其他」作为默认分组，避免所有凭证都带标签时采集被迫带标签
+        const forceUngrouped = this.credentialViewMode === 'tab';
+        const tabGroups = (hasUngroupedMain || forceUngrouped) ? [...namedGroups, ''] : namedGroups;
+        // 应用用户自定义标签页顺序（拖拽排序持久化到 project.tabOrder；新标签自动追加末尾，「其他」始终最后）
+        const orderedGroups = this.orderTabGroups(tabGroups, this.currentProject?.tabOrder);
+        this.tabGroups = orderedGroups;
         const useTabMode = this.credentialViewMode === 'tab' && namedGroups.length > 0;
-        if (!tabGroups.some(tag => tag === this.activeTagKey)) this.activeTagKey = tabGroups[0] ?? null;
-        this.activeTabIndex = Math.max(0, tabGroups.indexOf(this.activeTagKey));
+        // 无有效选中时：默认定位到第一个标签（打开即高亮显示当前标签）；「其他」始终常驻，可点选以采集无标签凭证
+        if (!orderedGroups.some(tag => tag === this.activeTagKey)) {
+            this.activeTagKey = orderedGroups[0] ?? null;
+        }
+        this.activeTabIndex = Math.max(0, orderedGroups.indexOf(this.activeTagKey));
 
         const buildCredItem = (cred, currentTabKey) => {
             const item = document.createElement('div');
@@ -454,7 +467,7 @@ class CredentialFiller extends BaseContentModule {
 
             const renderTabContent = (idx) => {
                 contentArea.innerHTML = '';
-                const key = tabGroups[idx];
+                const key = this.tabGroups[idx];
                 const filteredCreds = sorted.filter(c => {
                     const tags = CredentialTagUtils.normalizeTags(c.note);
                     return key === '' ? tags.length === 0 : CredentialTagUtils.hasTag(tags, key);
@@ -462,17 +475,83 @@ class CredentialFiller extends BaseContentModule {
                 filteredCreds.forEach(cred => contentArea.appendChild(buildCredItem(cred, key)));
             };
 
-            tabGroups.forEach((tabKey, idx) => {
+            // 拖拽插入指示线：绝对定位覆盖在 tab 栏上，不与源标签的「抬起」阴影冲突
+            tabBar.style.position = 'relative';
+            const dropLine = document.createElement('div');
+            dropLine.style.cssText = 'position:absolute; top:4px; bottom:4px; width:3px; background:#667eea; border-radius:2px; display:none; pointer-events:none; z-index:5;';
+            tabBar.appendChild(dropLine);
+
+            this.tabGroups.forEach((tabKey, idx) => {
                 const isActive = tabKey === this.activeTagKey;
+                const isUngrouped = tabKey === '';
                 const tab = document.createElement('div');
-                tab.textContent = tabKey === '' ? '其他' : tabKey;
-                tab.style.cssText = `padding: 6px 12px; font-size: 11px; cursor: pointer; white-space: nowrap; border-bottom: 2px solid ${isActive ? '#667eea' : 'transparent'}; color: ${isActive ? '#667eea' : '#999'}; font-weight: ${isActive ? '600' : '400'}; transition: color 0.15s; background: transparent;`;
+                tab.dataset.tabKey = tabKey;
+                tab.style.cssText = `position: relative; display: flex; align-items: center; gap: 3px; padding: 6px 12px; font-size: 11px; cursor: ${isUngrouped ? 'pointer' : 'grab'}; white-space: nowrap; border-bottom: 2px solid ${isActive ? '#667eea' : 'transparent'}; color: ${isActive ? '#667eea' : '#999'}; font-weight: ${isActive ? '600' : '400'}; transition: color 0.15s, background 0.15s, box-shadow 0.15s, opacity 0.15s; background: transparent;`;
+                // 命名标签：悬停淡入的拖拽手柄，提升可发现性
+                let grip = null;
+                if (!isUngrouped) {
+                    grip = document.createElement('span');
+                    grip.textContent = '⠿';
+                    grip.style.cssText = 'font-size: 11px; line-height: 1; color: #c0c0c8; opacity: 0; transition: opacity 0.15s; user-select: none;';
+                    tab.appendChild(grip);
+                }
+                const labelSpan = document.createElement('span');
+                labelSpan.textContent = tabKey === '' ? '其他' : tabKey;
+                tab.appendChild(labelSpan);
+                tab.title = isUngrouped ? '其他分组（固定末尾，不参与排序）' : '拖动可调整顺序';
+                if (!isUngrouped) {
+                    tab.draggable = true;
+                    tab.addEventListener('dragstart', (e) => {
+                        e.dataTransfer.setData('text/plain', tabKey);
+                        e.dataTransfer.effectAllowed = 'move';
+                        tab.classList.add('cmf-dragging');
+                        tab.style.opacity = '0.55';
+                        tab.style.boxShadow = '0 3px 8px rgba(102,126,234,0.35)';
+                    });
+                    tab.addEventListener('dragend', () => {
+                        tab.classList.remove('cmf-dragging');
+                        tab.style.opacity = '';
+                        tab.style.boxShadow = '';
+                        dropLine.style.display = 'none';
+                    });
+                    tab.addEventListener('dragover', (e) => {
+                        if (e.dataTransfer) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }
+                        const rect = tab.getBoundingClientRect();
+                        const barRect = tabBar.getBoundingClientRect();
+                        const after = (e.clientX - rect.left) > rect.width / 2;
+                        const edge = after ? rect.right : rect.left;
+                        dropLine.style.left = (edge - barRect.left - 1.5) + 'px';
+                        dropLine.style.display = 'block';
+                        tab.style.background = '#f0f1ff';
+                        tab._dropAfter = after;
+                    });
+                    tab.addEventListener('dragleave', () => {
+                        tab.style.background = '';
+                    });
+                    tab.addEventListener('drop', (e) => {
+                        e.preventDefault();
+                        const dragged = e.dataTransfer ? e.dataTransfer.getData('text/plain') : '';
+                        const after = tab._dropAfter;
+                        tab.style.background = '';
+                        dropLine.style.display = 'none';
+                        this.reorderTabGroups(dragged, tabKey, after ? 'after' : 'before');
+                    });
+                }
+                tab.addEventListener('mouseenter', () => {
+                    if (!isActive) tab.style.color = '#555';
+                    if (grip) grip.style.opacity = '1';
+                });
+                tab.addEventListener('mouseleave', () => {
+                    if (!isActive) tab.style.color = '#999';
+                    if (grip && !tab.classList.contains('cmf-dragging')) grip.style.opacity = '0';
+                });
                 tab.addEventListener('mousedown', (e) => {
                     e.preventDefault();
                     this.activeTabIndex = idx;
                     this.activeTagKey = tabKey;
-                    Array.from(tabBar.children).forEach((t, i) => {
-                        const a = i === idx;
+                    Array.from(tabBar.children).forEach((t) => {
+                        if (!t.dataset || t.dataset.tabKey === undefined) return;
+                        const a = t.dataset.tabKey === tabKey;
                         t.style.borderBottomColor = a ? '#667eea' : 'transparent';
                         t.style.color = a ? '#667eea' : '#999';
                         t.style.fontWeight = a ? '600' : '400';
@@ -1151,5 +1230,60 @@ class CredentialFiller extends BaseContentModule {
         }
         this.processedInputs = new WeakSet();
         console.log('凭证填充功能已清理');
+    }
+
+    /**
+     * 按用户自定义顺序排列表签分组；新出现的标签追加到末尾，「其他」始终最后。
+     * @param {string[]} groups 原始分组（含 '' 表示「其他」）
+     * @param {string[]|undefined} order  用户保存的顺序（小写 tag key）
+     * @returns {string[]}
+     */
+    orderTabGroups(groups, order) {
+        const named = groups.filter(g => g !== '');
+        const orderArr = (order || []).map(k => CredentialTagUtils.keyOf(k));
+        const ordered = named
+            .map(g => ({ key: CredentialTagUtils.keyOf(g), g }))
+            .sort((a, b) => {
+                const ia = orderArr.indexOf(a.key);
+                const ib = orderArr.indexOf(b.key);
+                if (ia === -1 && ib === -1) return 0;   // 都不在自定义顺序中：保持原相对顺序
+                if (ia === -1) return 1;                 // 新标签排到后面
+                if (ib === -1) return -1;
+                return ia - ib;
+            })
+            .map(x => x.g);
+        const hasUngrouped = groups.includes('');
+        return hasUngrouped ? [...ordered, ''] : ordered;
+    }
+
+    /**
+     * 拖拽完成后更新并持久化标签顺序，然后重渲染浮层。
+     * 「其他」固定末尾不参与排序；拖到「其他」上视为无效操作。
+     */
+    async reorderTabGroups(draggedKey, targetKey, position = 'before') {
+        const project = this.currentProject;
+        if (!project || !draggedKey || !targetKey) return;
+        const dKey = CredentialTagUtils.keyOf(draggedKey);
+        const tKey = CredentialTagUtils.keyOf(targetKey);
+        if (dKey === tKey || tKey === '') return;
+        // 仅对命名标签页排序（当前 this.tabGroups 已是上一轮排好序的列表）
+        const current = (this.tabGroups || []).filter(g => g !== '').map(g => CredentialTagUtils.keyOf(g));
+        const dIdx = current.indexOf(dKey);
+        const tIdx = current.indexOf(tKey);
+        if (dIdx === -1 || tIdx === -1) return;
+        current.splice(dIdx, 1);
+        const insertAt = position === 'after' ? current.indexOf(tKey) + 1 : current.indexOf(tKey);
+        current.splice(insertAt, 0, dKey);
+        // 持久化到 storage（直读后写回同一 id 的项目，绕开缓存时序）
+        try {
+            const data = await chrome.storage.local.get(['credentialProjects']);
+            const projects = data.credentialProjects || [];
+            const idx = projects.findIndex(p => p.id === project.id);
+            if (idx >= 0) projects[idx].tabOrder = current;
+            await chrome.storage.local.set({ credentialProjects: projects });
+            project.tabOrder = current;
+        } catch (e) { /* 持久化失败不阻断排序体验 */ }
+        // 重渲染浮层（沿用当前聚焦的输入框）
+        if (this.activeInput) this.showCredentialPopup(this.activeInput);
     }
 }
