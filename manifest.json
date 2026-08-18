@@ -53,6 +53,7 @@
         "shared/Toast.js",
         "shared/SideTooltip.js",
         "shared/timeFormat.js",
+        "shared/credentialTags.js",
         "lib/jsqr.min.js",
         "lib/qrcode.min.js",
         "content/modules/BaseModule.js",

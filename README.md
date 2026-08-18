@@ -54,7 +54,7 @@ ChromeExt/
 - 按页面 `title` 模糊匹配项目（或 `titleProjectBindings` 手动绑定），聚焦登录框时弹出 `SideTooltip` 选择凭证。
 - 支持**跨 iframe**：iframe 内通过 `postMessage` 委托父页面渲染浮层，避免被 iframe 边界裁剪。
 - 字段识别综合 `placeholder / name / id / autocomplete / aria-label` 等线索 + 语义兜底；填充用原生 `value` setter 触发框架事件。
-- 支持 tab / list 双视图、一键从页面采集凭证、导入/导出。
+- 支持标签 / 列表双视图、一键从页面采集凭证、导入/导出；`note` 是兼容字段名，实际存储多值标签数组，用于分组和环境/角色区分。
 
 ### 3. MasterGo 导航（MasterGoNav + 后台 TabPoolManager）
 - 悬浮树状侧边栏，支持暗/亮主题、左/右侧、可折叠。

@@ -669,3 +669,165 @@ input[type="text"]:focus, input[type="password"]:focus {
   transition: background .15s ease;
 }
 .module-show-btn:hover { background: #0066d6; }
+
+.image-preview-number-setting label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.image-preview-number-setting input {
+  width: 70px;
+  padding: 5px 6px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text-main);
+  font: inherit;
+  text-align: right;
+}
+
+/* 图片预览与标签子页使用相同的禁用反馈。 */
+.subpage-content.disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+/* 凭证标签面板：专用选择器覆盖通用输入框样式，保证小 Popup 内紧凑稳定。 */
+.cmf-tag-panel {
+  margin-top: 2px;
+  padding: 11px;
+  border: 1px solid #dbe7f8;
+  border-radius: 10px;
+  background: #f8fbff;
+}
+.cmf-tag-panel-title {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+  margin-bottom: 2px;
+  cursor: pointer;
+}
+.cmf-tag-panel-hint {
+  font-size: 11px;
+  color: #8a8a8e;
+  margin: 0 0 9px;
+  line-height: 1.35;
+}
+.cmf-tag-section-label {
+  display: block;
+  font-size: 11px;
+  color: #64748b;
+  margin-bottom: 5px;
+}
+.cmf-tag-selected { min-height: 28px; }
+.cmf-tag-list { display: flex; flex-wrap: wrap; gap: 5px; }
+.cmf-tag-empty { display: inline-block; font-size: 11px; color: #a0a0aa; padding: 3px 0; }
+.cmf-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border: 1px solid #b9d7fa;
+  border-radius: 999px;
+  padding: 2px 3px 2px 7px;
+  color: #0868c7;
+  background: #eaf4ff;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.cmf-tag-remove {
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: #357cc1;
+  font-size: 14px;
+  line-height: 15px;
+  cursor: pointer;
+}
+.cmf-tag-remove:hover, .cmf-tag-remove:focus-visible {
+  background: #cfe7ff;
+  color: #005bb5;
+  outline: none;
+}
+.cmf-tag-create-row { display: flex; gap: 6px; margin-top: 10px; }
+input[type="text"].cmf-tag-create-input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 9px !important;
+  border: 1px solid #b9d7fa !important;
+  border-radius: 7px !important;
+  background: #fff !important;
+  color: #334155;
+  font-size: 12px !important;
+  line-height: 1.3;
+}
+input[type="text"].cmf-tag-create-input:focus {
+  border-color: var(--accent-color) !important;
+  box-shadow: 0 0 0 3px rgba(0,122,255,0.12);
+}
+.cmf-tag-add-button {
+  flex-shrink: 0;
+  padding: 0 12px;
+  border: none;
+  border-radius: 7px;
+  background: var(--accent-color);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.cmf-tag-add-button:hover, .cmf-tag-add-button:focus-visible { background: #0066d6; outline: none; }
+.cmf-tag-recommendations { margin-top: 10px; border-top: 1px solid #dbe7f8; padding-top: 7px; }
+.cmf-tag-recommendations-toggle {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 3px 0;
+  border: none;
+  background: transparent;
+  color: #53687f;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+.cmf-tag-recommendations-toggle:hover, .cmf-tag-recommendations-toggle:focus-visible { color: var(--accent-color); outline: none; }
+.cmf-tag-recommendations-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  max-height: 104px;
+  overflow-y: auto;
+  padding: 6px 1px 1px;
+}
+.cmf-tag-recommendation {
+  border: 1px solid #d2dbe8;
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: #fff;
+  color: #516276;
+  font-size: 11px;
+  cursor: pointer;
+  line-height: 1.4;
+}
+.cmf-tag-recommendation:hover, .cmf-tag-recommendation:focus-visible {
+  border-color: #94c5f8;
+  color: #006fcf;
+  background: #f1f8ff;
+  outline: none;
+}
+.cmf-tag-recommendation[aria-pressed="true"] {
+  border-color: #8fc1f4;
+  background: #e8f3ff;
+  color: #006fcf;
+  font-weight: 600;
+}
+.cmf-tag-recommendations-list::-webkit-scrollbar { width: 3px; }
+.cmf-tag-recommendations-list::-webkit-scrollbar-thumb { background: #c4d6e9; border-radius: 4px; }

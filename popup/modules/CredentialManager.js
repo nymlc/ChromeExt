@@ -15,6 +15,7 @@ class CredentialManager extends BaseModule {
         this.pageTitle = '';
         this.credentialViewMode = 'tab'; // tab | list，默认 tab
         this.activeTabIndex = 0;         // 当前激活的 Tab 索引
+        this.activeTagKey = null;        // 当前激活标签，避免标签顺序变化后串组
     }
 
     async init() {
@@ -80,14 +81,10 @@ class CredentialManager extends BaseModule {
     async loadProjects() {
         const result = await chrome.storage.local.get(['credentialProjects']);
         const projects = result.credentialProjects || [];
-        // 存量迁移：note string → string[]
+        // 存量兼容：note 是历史字段名，统一按多值标签数组在内存中使用。
         projects.forEach(p => {
             p.credentials.forEach(c => {
-                if (typeof c.note === 'string') {
-                    c.note = c.note ? [c.note] : [];
-                } else if (!Array.isArray(c.note)) {
-                    c.note = [];
-                }
+                c.note = CredentialTagUtils.normalizeTags(c.note);
             });
         });
         this.projects = projects;
@@ -126,16 +123,11 @@ class CredentialManager extends BaseModule {
      * 用于凭证判重：用户名相同 + 标签相同 => 视为同一条（覆盖）；标签不同 => 视为不同条目（并存）。
      */
     tagsEqual(a, b) {
-        // 兼容 note 为字符串（如 'A'）或数组（如 ['A']）两种存储形态，
-        // 与渲染层展示逻辑保持一致：非数组且为真值则视为单元素数组。
-        const norm = (arr) => (Array.isArray(arr) ? arr : (arr ? [arr] : []))
-            .map(t => String(t).trim())
-            .filter(Boolean)
-            .sort();
-        const na = norm(a);
-        const nb = norm(b);
-        if (na.length !== nb.length) return false;
-        return na.every((t, i) => t === nb[i]);
+        return CredentialTagUtils.tagsEqual(a, b);
+    }
+
+    normalizeTags(value) {
+        return CredentialTagUtils.normalizeTags(value);
     }
 
     // ==================== 渲染 ====================
@@ -417,29 +409,24 @@ class CredentialManager extends BaseModule {
             container.appendChild(switchRow);
         }
 
-        // 视图切换行（仅在凭证数 > 0 且有多于 1 个分组时显示）
-        const allNotes = [];
+        // 标签是多值分类，Tab 仅作为标签集合的浏览方式。
+        const namedGroups = [];
         project.credentials.forEach(c => {
-            const ns = Array.isArray(c.note) ? c.note : (c.note ? [c.note] : []);
-            ns.forEach(n => { if (!allNotes.includes(n)) allNotes.push(n); });
-            if (ns.length === 0 && !allNotes.includes('')) allNotes.push('');
+            this.normalizeTags(c.note).forEach(tag => {
+                if (!namedGroups.some(item => CredentialTagUtils.keyOf(item) === CredentialTagUtils.keyOf(tag))) {
+                    namedGroups.push(tag);
+                }
+            });
         });
-        const tabGroups = allNotes.filter(n => n !== '');
-        const hasUngrouped = project.credentials.some(c => {
-            const ns = Array.isArray(c.note) ? c.note : (c.note ? [c.note] : []);
-            return ns.length === 0;
-        });
-        if (hasUngrouped) tabGroups.push('');
-        const useTabMode = this.credentialViewMode === 'tab' && tabGroups.length > 1;
-        // 保存 UI 实际展示的分组，供「从页面采集」时判定当前标签使用
+        const hasUngrouped = project.credentials.some(c => this.normalizeTags(c.note).length === 0);
+        const tabGroups = hasUngrouped ? [...namedGroups, ''] : namedGroups;
+        // 只要存在命名标签，就保留标签上下文；单一标签分组也能用于采集。
+        const useTabMode = this.credentialViewMode === 'tab' && namedGroups.length > 0;
         this.tabGroups = tabGroups;
-
-        // [诊断] 渲染标签栏时的状态，便于和采集时对比
-        if (typeof console !== 'undefined') {
-            console.log('[render] useTabMode=', useTabMode, ' credentialViewMode=', this.credentialViewMode,
-                ' tabGroups=', JSON.stringify(tabGroups), ' activeTabIndex=', this.activeTabIndex,
-                ' project=', project.name, ' 显示标签数=', useTabMode ? tabGroups.length : 0);
+        if (!tabGroups.some(tag => tag === this.activeTagKey)) {
+            this.activeTagKey = tabGroups[0] ?? null;
         }
+        this.activeTabIndex = Math.max(0, tabGroups.indexOf(this.activeTagKey));
 
         if (project.credentials.length > 0) {
             const viewToggleRow = document.createElement('div');
@@ -457,6 +444,7 @@ class CredentialManager extends BaseModule {
             toggleBtn.addEventListener('click', async () => {
                 this.credentialViewMode = isTab ? 'list' : 'tab';
                 this.activeTabIndex = 0;
+                this.activeTagKey = this.tabGroups?.[0] ?? null;
                 await chrome.storage.local.set({ credentialViewMode: this.credentialViewMode });
                 this.render();
             });
@@ -571,21 +559,20 @@ class CredentialManager extends BaseModule {
             row2.textContent = cred.username;
             card.appendChild(row2);
 
-            // 列表模式下仍显示 note tags；tab 模式下不重复显示当前 tab 对应的 tag，其余 tag 仍展示
-            const notes = Array.isArray(cred.note) ? cred.note : (cred.note ? [cred.note] : []);
-            const tagsToShow = useTabMode
-                ? notes.filter(n => n !== tabGroups[this.activeTabIndex])
-                : notes;
+            // 始终展示完整标签集合；当前分组只做视觉强调，不隐藏归属。
+            const tagsToShow = this.normalizeTags(cred.note);
             if (tagsToShow.length > 0) {
                 const noteRow = document.createElement('div');
                 noteRow.style.cssText = 'display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px;';
                 tagsToShow.forEach(tag => {
+                    const isCurrent = useTabMode && CredentialTagUtils.keyOf(tag) === CredentialTagUtils.keyOf(this.activeTagKey || '');
                     const tagEl = document.createElement('span');
                     tagEl.textContent = tag;
                     tagEl.style.cssText = `
-                        font-size: 11px; color: #996b00; background: #fffbf0;
+                        font-size: 11px; color: ${isCurrent ? '#5b3db2' : '#996b00'};
+                        background: ${isCurrent ? '#f0ebff' : '#fffbf0'};
                         border-radius: 4px; padding: 1px 6px;
-                        border: 1px solid #f0c060; line-height: 1.5;
+                        border: 1px solid ${isCurrent ? '#a890e8' : '#f0c060'}; line-height: 1.5;
                     `;
                     noteRow.appendChild(tagEl);
                 });
@@ -595,9 +582,6 @@ class CredentialManager extends BaseModule {
         };
 
         if (useTabMode) {
-            // 越界保护
-            if (this.activeTabIndex >= tabGroups.length) this.activeTabIndex = 0;
-
             // Tab 栏
             const tabBar = document.createElement('div');
             tabBar.style.cssText = `
@@ -609,7 +593,7 @@ class CredentialManager extends BaseModule {
             tabGroups.forEach((tabKey, idx) => {
                 const tabLabel = tabKey === '' ? '其他' : tabKey;
                 const tab = document.createElement('div');
-                const isActive = idx === this.activeTabIndex;
+                const isActive = tabKey === this.activeTagKey;
                 tab.dataset.tabKey = tabKey;
                 if (isActive) tab.classList.add('cmf-active-tab');
                 tab.textContent = tabLabel;
@@ -621,6 +605,7 @@ class CredentialManager extends BaseModule {
                 `;
                 tab.addEventListener('click', () => {
                     this.activeTabIndex = idx;
+                    this.activeTagKey = tabKey;
                     this.render();
                 });
                 tab.addEventListener('mouseenter', () => {
@@ -634,10 +619,10 @@ class CredentialManager extends BaseModule {
             container.appendChild(tabBar);
 
             // 当前 Tab 的凭证列表
-            const currentKey = tabGroups[this.activeTabIndex];
+            const currentKey = this.activeTagKey;
             const tabCreds = sorted.filter(c => {
-                const ns = Array.isArray(c.note) ? c.note : (c.note ? [c.note] : []);
-                return currentKey === '' ? ns.length === 0 : ns.includes(currentKey);
+                const tags = this.normalizeTags(c.note);
+                return currentKey === '' ? tags.length === 0 : CredentialTagUtils.hasTag(tags, currentKey);
             });
 
             const list = document.createElement('div');
@@ -713,7 +698,7 @@ class CredentialManager extends BaseModule {
         const usernameInput = this.createInput('用户名', cred.username, '请输入用户名');
         // 密码
         const passwordInput = this.createInput('密码', cred.password, '请输入密码', 'text');
-        // 备注
+        // 标签
         const noteWrapper = this.createNoteInput(cred.note);
 
         form.appendChild(labelInput.wrapper);
@@ -854,146 +839,199 @@ class CredentialManager extends BaseModule {
      * 返回 { wrapper, getTags }，getTags() 返回当前 tag 数组
      */
     createNoteInput(initialTags) {
-        const tags = Array.isArray(initialTags) ? [...initialTags] : (initialTags ? [initialTags] : []);
-        const wrapper = document.createElement('div');
+        const tags = this.normalizeTags(initialTags);
+        const wrapper = document.createElement('section');
+        wrapper.className = 'cmf-tag-panel';
 
-        const label = document.createElement('div');
-        label.textContent = '备注';
-        label.style.cssText = 'font-size: 12px; color: #666; margin-bottom: 3px;';
+        const label = document.createElement('label');
+        const inputId = `credentialTagInput_${this.generateId()}`;
+        label.htmlFor = inputId;
+        label.className = 'cmf-tag-panel-title';
+        label.textContent = '标签';
 
-        // 获取当前项目下已有的所有 tag（候选提示）
-        const allTags = new Set();
-        if (this.currentProject) {
-            this.currentProject.credentials.forEach(c => {
-                const notes = Array.isArray(c.note) ? c.note : (c.note ? [c.note] : []);
-                notes.forEach(t => allTags.add(t));
+        const hint = document.createElement('p');
+        hint.className = 'cmf-tag-panel-hint';
+        hint.textContent = '用于分组；新建后点击添加或按 Enter、逗号确认';
+
+        const usage = new Map();
+        (this.currentProject?.credentials || []).forEach(credential => {
+            this.normalizeTags(credential.note).forEach(tag => {
+                const key = CredentialTagUtils.keyOf(tag);
+                const entry = usage.get(key) || { tag, count: 0 };
+                entry.count += 1;
+                usage.set(key, entry);
             });
-        }
+        });
+        const recommendations = [...usage.values()].sort((a, b) =>
+            b.count - a.count || a.tag.localeCompare(b.tag, 'zh-CN'));
 
-        const tagContainer = document.createElement('div');
-        tagContainer.style.cssText = `
-            min-height: 36px; padding: 4px 8px; border: 1px solid #e0e0e0; border-radius: 6px;
-            display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
-            cursor: text; transition: border-color 0.2s; background: #fff;
-        `;
-        tagContainer.addEventListener('click', () => input.focus());
+        const selectedSection = document.createElement('div');
+        selectedSection.className = 'cmf-tag-selected';
+        const selectedLabel = document.createElement('span');
+        selectedLabel.className = 'cmf-tag-section-label';
+        selectedLabel.textContent = '已添加';
+        const selectedList = document.createElement('div');
+        selectedList.className = 'cmf-tag-list';
+        selectedList.setAttribute('role', 'list');
+        const selectedEmpty = document.createElement('span');
+        selectedEmpty.className = 'cmf-tag-empty';
+        selectedEmpty.textContent = '暂未添加标签';
+        selectedSection.append(selectedLabel, selectedList, selectedEmpty);
 
-        const renderTags = () => {
-            // 清掉旧 tag 元素（保留 input）
-            Array.from(tagContainer.children).forEach(el => {
-                if (el !== input && el !== suggestBox) tagContainer.removeChild(el);
-            });
-            tags.forEach((tag, idx) => {
-                const chip = document.createElement('span');
-                chip.style.cssText = `
-                    display: inline-flex; align-items: center; gap: 3px;
-                    font-size: 11px; color: #996b00; background: #fffbf0;
-                    border: 1px solid #f0c060; border-radius: 4px; padding: 1px 5px;
-                    line-height: 1.6;
-                `;
-                const chipText = document.createElement('span');
-                chipText.textContent = tag;
-                const chipDel = document.createElement('span');
-                chipDel.textContent = '×';
-                chipDel.style.cssText = 'cursor: pointer; font-size: 13px; color: #c0a000; margin-left: 1px;';
-                chipDel.addEventListener('mousedown', (e) => {
-                    e.preventDefault();
-                    tags.splice(idx, 1);
-                    renderTags();
-                });
-                chip.appendChild(chipText);
-                chip.appendChild(chipDel);
-                tagContainer.insertBefore(chip, input);
+        const createRow = document.createElement('div');
+        createRow.className = 'cmf-tag-create-row';
+        const input = document.createElement('input');
+        input.id = inputId;
+        input.type = 'text';
+        input.className = 'cmf-tag-create-input';
+        input.placeholder = '输入新标签';
+        input.autocomplete = 'off';
+        const addButton = document.createElement('button');
+        addButton.type = 'button';
+        addButton.className = 'cmf-tag-add-button';
+        addButton.textContent = '添加';
+        createRow.append(input, addButton);
+
+        const recommendationSection = document.createElement('div');
+        recommendationSection.className = 'cmf-tag-recommendations';
+        const recommendationId = `credentialTagRecommendations_${this.generateId()}`;
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'cmf-tag-recommendations-toggle';
+        toggle.setAttribute('aria-controls', recommendationId);
+        let isExpanded = true;
+        const recommendationList = document.createElement('div');
+        recommendationList.id = recommendationId;
+        recommendationList.className = 'cmf-tag-recommendations-list';
+        recommendationList.setAttribute('role', 'list');
+        recommendationSection.append(toggle, recommendationList);
+
+        const getScrollState = () => {
+            const scrollEl = wrapper.closest('.scrollable-area');
+            const wasFocused = document.activeElement === input;
+            return {
+                scrollEl,
+                top: scrollEl?.scrollTop || 0,
+                left: scrollEl?.scrollLeft || 0,
+                wasFocused,
+                start: wasFocused ? input.selectionStart : null,
+                end: wasFocused ? input.selectionEnd : null,
+            };
+        };
+        const restoreScrollState = (state) => {
+            requestAnimationFrame(() => {
+                if (state.scrollEl?.isConnected) {
+                    state.scrollEl.scrollTop = state.top;
+                    state.scrollEl.scrollLeft = state.left;
+                }
+                if (state.wasFocused && input.isConnected) {
+                    input.focus({ preventScroll: true });
+                    if (typeof input.setSelectionRange === 'function') input.setSelectionRange(state.start, state.end);
+                }
             });
         };
-
-        const input = document.createElement('input');
-        input.type = 'text';
-        input.placeholder = tags.length === 0 ? '输入备注回车添加，如：测试、线上' : '';
-        input.style.cssText = `
-            border: none; outline: none; font-size: 12px; flex: 1; min-width: 80px;
-            background: transparent; color: #555; font-family: inherit; padding: 2px 0;
-        `;
-
-        // 候选提示下拉
-        const suggestBox = document.createElement('div');
-        suggestBox.style.cssText = `
-            display: none; position: absolute; background: #fff; border: 1px solid #e0e0e0;
-            border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); z-index: 9999;
-            max-height: 120px; overflow-y: auto; min-width: 120px;
-        `;
-
-        const wrapPos = document.createElement('div');
-        wrapPos.style.cssText = 'position: relative;';
-        wrapPos.appendChild(tagContainer);
-        wrapPos.appendChild(suggestBox);
-
-        const showSuggestions = (val) => {
-            const query = val.trim().toLowerCase();
-            const candidates = [...allTags].filter(t => !tags.includes(t) && (!query || t.toLowerCase().includes(query)));
-            suggestBox.innerHTML = '';
-            if (candidates.length === 0) { suggestBox.style.display = 'none'; return; }
-            candidates.forEach(t => {
-                const opt = document.createElement('div');
-                opt.textContent = t;
-                opt.style.cssText = 'padding: 6px 10px; font-size: 12px; cursor: pointer; color: #333;';
-                opt.addEventListener('mouseenter', () => { opt.style.background = '#f5f7ff'; });
-                opt.addEventListener('mouseleave', () => { opt.style.background = ''; });
-                opt.addEventListener('mousedown', (e) => {
-                    e.preventDefault();
-                    if (!tags.includes(t)) tags.push(t);
-                    input.value = '';
-                    input.placeholder = '';
-                    suggestBox.style.display = 'none';
-                    renderTags();
+        const isSelected = (tag) => tags.some(item => CredentialTagUtils.keyOf(item) === CredentialTagUtils.keyOf(tag));
+        const refreshToggle = () => {
+            toggle.textContent = `常用标签（${recommendations.length}） ${isExpanded ? '⌃' : '⌄'}`;
+            toggle.setAttribute('aria-expanded', String(isExpanded));
+            recommendationList.hidden = !isExpanded;
+        };
+        const renderSelected = () => {
+            selectedList.innerHTML = '';
+            selectedEmpty.hidden = tags.length > 0;
+            tags.forEach((tag, index) => {
+                const chip = document.createElement('span');
+                chip.className = 'cmf-tag-chip';
+                chip.setAttribute('role', 'listitem');
+                const text = document.createElement('span');
+                text.textContent = tag;
+                const remove = document.createElement('button');
+                remove.type = 'button';
+                remove.className = 'cmf-tag-remove';
+                remove.textContent = '×';
+                remove.setAttribute('aria-label', `移除标签：${tag}`);
+                remove.addEventListener('click', () => {
+                    tags.splice(index, 1);
+                    renderAll();
                     input.focus();
                 });
-                suggestBox.appendChild(opt);
+                chip.append(text, remove);
+                selectedList.appendChild(chip);
             });
-            suggestBox.style.display = 'block';
+        };
+        const renderRecommendations = () => {
+            recommendationList.innerHTML = '';
+            if (!recommendations.length) {
+                const empty = document.createElement('span');
+                empty.className = 'cmf-tag-empty';
+                empty.textContent = '当前项目暂无可推荐标签';
+                recommendationList.appendChild(empty);
+                return;
+            }
+            recommendations.forEach(({ tag, count }) => {
+                const selected = isSelected(tag);
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'cmf-tag-recommendation';
+                button.setAttribute('aria-pressed', String(selected));
+                button.setAttribute('aria-label', `${selected ? '移除' : '添加'}标签：${tag}，已被 ${count} 个凭证使用`);
+                button.textContent = `${tag} · ${count}`;
+                button.addEventListener('click', () => {
+                    const index = tags.findIndex(item => CredentialTagUtils.keyOf(item) === CredentialTagUtils.keyOf(tag));
+                    if (index >= 0) tags.splice(index, 1);
+                    else tags.push(tag);
+                    renderAll();
+                });
+                recommendationList.appendChild(button);
+            });
+        };
+        const renderAll = () => {
+            const scrollState = getScrollState();
+            const normalized = this.normalizeTags(tags);
+            tags.splice(0, tags.length, ...normalized);
+            renderSelected();
+            renderRecommendations();
+            refreshToggle();
+            restoreScrollState(scrollState);
+        };
+        const commitInput = () => {
+            const raw = input.value.replace(/[，、,]$/, '').trim();
+            const tag = this.normalizeTags([raw])[0];
+            if (!tag || isSelected(tag)) return false;
+            tags.push(tag);
+            input.value = '';
+            renderAll();
+            return true;
         };
 
-        input.addEventListener('focus', () => {
-            tagContainer.style.borderColor = '#667eea';
-            showSuggestions(input.value);
+        addButton.addEventListener('click', () => {
+            commitInput();
+            input.focus();
         });
-        input.addEventListener('blur', () => {
-            tagContainer.style.borderColor = '#e0e0e0';
-            setTimeout(() => { suggestBox.style.display = 'none'; }, 150);
-            // blur 时若有未提交的文字，自动添加为 tag
-            const val = input.value.trim();
-            if (val && !tags.includes(val)) {
-                tags.push(val);
-                input.value = '';
-                input.placeholder = '';
-                renderTags();
-            }
-        });
-        input.addEventListener('input', () => showSuggestions(input.value));
-        input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' || e.key === ',') {
-                e.preventDefault();
-                const val = input.value.trim().replace(/,$/, '');
-                if (val && !tags.includes(val)) {
-                    tags.push(val);
-                    allTags.add(val);
-                    input.value = '';
-                    input.placeholder = '';
-                    suggestBox.style.display = 'none';
-                    renderTags();
-                }
-            } else if (e.key === 'Backspace' && input.value === '' && tags.length > 0) {
+        input.addEventListener('keydown', (event) => {
+            if (event.isComposing) return;
+            if (event.key === 'Enter' || event.key === ',' || event.key === '，' || event.key === '、') {
+                event.preventDefault();
+                commitInput();
+            } else if (event.key === 'Backspace' && !input.value && tags.length) {
                 tags.pop();
-                renderTags();
+                renderAll();
+            } else if (event.key === 'Escape') {
+                if (input.value) input.value = '';
+                else {
+                    isExpanded = false;
+                    refreshToggle();
+                }
             }
         });
+        toggle.addEventListener('click', () => {
+            isExpanded = !isExpanded;
+            refreshToggle();
+        });
 
-        tagContainer.appendChild(input);
-        renderTags();
-
-        wrapper.appendChild(label);
-        wrapper.appendChild(wrapPos);
-        return { wrapper, getTags: () => [...tags] };
+        renderAll();
+        wrapper.append(label, hint, selectedSection, createRow, recommendationSection);
+        return { wrapper, getTags: () => this.normalizeTags(tags) };
     }
 
     /**
@@ -1166,85 +1204,41 @@ class CredentialManager extends BaseModule {
                 this.projects.push(project);
             }
 
-            // 采集时若正处于「标签」视图的某一分组下，则把当前正在查看的标签带入凭证，
-            // 并仅在「该标签下」判断是否存在同名账号：有则覆盖、无则采集新增。
-            // 直接读取渲染层实际展示的 tabGroups[activeTabIndex]，避免按 project.credentials
-            // 重算时漏掉「当前正在看、但还没采过凭证」的标签，导致采到未分组或错标签。
-            // ===== [诊断] 采集全链路（同时输出到控制台 + popup 底部调试条）=====
-            const dbg = [];
-            const L = (label, ...args) => {
-                const s = [label, ...args.map(a => (typeof a === 'string' ? a : JSON.stringify(a)))].join(' ');
-                if (typeof console !== 'undefined') console.log(s);
-                dbg.push(s);
-            };
-            const showDebug = () => {
-                try {
-                    let el = document.getElementById('cmfScanDebug');
-                    if (!el) {
-                        el = document.createElement('div');
-                        el.id = 'cmfScanDebug';
-                        el.style.cssText = 'position:fixed;left:6px;right:6px;bottom:6px;max-height:42%;overflow:auto;background:#fff8e1;border:1px solid #f0c36d;color:#222;font:11px/1.35 monospace;padding:6px 8px;border-radius:8px;z-index:2147483647;white-space:pre-wrap;box-shadow:0 2px 10px rgba(0,0,0,.25)';
-                        (document.body || document.documentElement).appendChild(el);
-                    }
-                    el.textContent = '[采集诊断 v1.0.66]\n' + dbg.join('\n');
-                } catch (e) {}
-            };
-
-            const contentEl = document.getElementById('credentialModuleContent');
-            const activeEl0 = document.querySelector('#credentialModuleContent .cmf-active-tab');
-            L('[scanAndSave] === 采集开始 ===');
-            L('[scanAndSave] credentialViewMode=', this.credentialViewMode, ' currentView=', this.currentView,
-                ' currentProject=', this.currentProject && this.currentProject.name, ' activeTabIndex=', this.activeTabIndex);
-            L('[scanAndSave] tabGroups=', this.tabGroups, ' contentEl存在=', !!contentEl,
-                ' activeTabEl存在=', !!activeEl0, ' activeTabKey=', activeEl0 ? (activeEl0.dataset ? activeEl0.dataset.tabKey : '无dataset') : '无active元素');
-            L('[scanAndSave] 当前项目全部凭证(前5条):', (project.credentials || []).slice(0, 5).map(c => ({ u: c.username, note: c.note, status: c.status })));
-
-            let currentTabKey = '';
-            if (this.credentialViewMode === 'tab') {
-                const aEl = document.querySelector('#credentialModuleContent .cmf-active-tab');
-                if (aEl && aEl.dataset.tabKey !== undefined) {
-                    currentTabKey = aEl.dataset.tabKey;
-                    L('[scanAndSave] 来源=DOM高亮标签, currentTabKey=', currentTabKey);
-                } else if (Array.isArray(this.tabGroups) && this.tabGroups.length) {
-                    const idx = (this.activeTabIndex >= 0 && this.activeTabIndex < this.tabGroups.length) ? this.activeTabIndex : 0;
-                    currentTabKey = this.tabGroups[idx] || '';
-                    L('[scanAndSave] 来源=状态兜底(tabGroups[' + idx + ']), currentTabKey=', currentTabKey, ' viewMode=tab但DOM无高亮');
-                }
-            } else {
-                L('[scanAndSave] 来源=无(非tab模式, currentTabKey留空) credentialViewMode=', this.credentialViewMode);
-            }
-
-            // 保存凭证到项目（用户名 + 标签 都相同才覆盖；标签不同则并存）
+            // 标签视图下才将当前标签作为采集上下文；列表视图保持无标签采集。
+            const currentTabKey = this.credentialViewMode === 'tab' ? (this.activeTagKey || '') : '';
             const username = usernameField ? usernameField.value : '';
+            const contextTags = this.normalizeTags(currentTabKey);
             const newCred = {
                 id: this.generateId(),
                 label: username || '采集的凭证',
                 username,
                 password: passwordField ? passwordField.value : '',
                 customFields,
-                note: currentTabKey ? [currentTabKey] : [],
+                note: contextTags,
                 status: 'active',
                 disabledReason: ''
             };
 
-            L('[scanAndSave] currentTabKey=', currentTabKey, ' username=', username,
-                ' 同username候选=', project.credentials.filter(c => c.username === username)
-                    .map(c => ({ id: c.id, note: c.note, status: c.status })));
+            let existingIdx = project.credentials.findIndex(c =>
+                c.username === username && !!username && this.tagsEqual(c.note, contextTags));
+            if (existingIdx < 0 && contextTags.length) {
+                const contextMatches = project.credentials
+                    .map((credential, index) => ({ credential, index }))
+                    .filter(({ credential }) => credential.username === username
+                        && CredentialTagUtils.hasTag(credential.note, contextTags[0]));
+                if (contextMatches.length === 1) existingIdx = contextMatches[0].index;
+            }
 
-            const existingIdx = project.credentials.findIndex(c =>
-                c.username === username && !!username && this.tagsEqual(c.note, newCred.note));
             if (existingIdx >= 0) {
-                // 保留原有 id、status 和 note
-                newCred.id = project.credentials[existingIdx].id;
-                newCred.status = project.credentials[existingIdx].status;
-                newCred.disabledReason = project.credentials[existingIdx].disabledReason;
-                newCred.note = project.credentials[existingIdx].note || [];
+                const existing = project.credentials[existingIdx];
+                newCred.id = existing.id;
+                newCred.status = existing.status;
+                newCred.disabledReason = existing.disabledReason;
+                newCred.note = this.normalizeTags(existing.note);
                 project.credentials[existingIdx] = newCred;
-                L('[scanAndSave] 最终分支=覆盖 (existingIdx=', existingIdx, ' 命中note=', project.credentials[existingIdx].note, ')');
                 Toast.success(currentTabKey ? `「${currentTabKey}」下已存在同名账号，已覆盖更新` : '凭证已覆盖更新');
             } else {
                 project.credentials.push(newCred);
-                L('[scanAndSave] 最终分支=新建 (note=', newCred.note, ')');
                 Toast.success(currentTabKey ? `凭证已采集到「${currentTabKey}」` : '凭证已保存到项目：' + project.name);
             }
 
@@ -1253,7 +1247,6 @@ class CredentialManager extends BaseModule {
             this.currentProject = project;
             this.currentView = 'detail';
             this.render();
-            showDebug();
 
         } catch (e) {
             Toast.error('采集失败，请刷新页面后重试');

@@ -189,52 +189,67 @@ class PopupManager {
     const measure = () => {
       if (!wrapper.classList.contains('show-subpage')) return;
       const headerH = header ? header.offsetHeight : 50;
+      const scrollStates = Array.from(content.querySelectorAll('.scrollable-area')).map(el => ({
+        el,
+        top: el.scrollTop,
+        left: el.scrollLeft,
+      }));
+      const activeEl = document.activeElement;
+      const selection = activeEl instanceof HTMLInputElement || activeEl instanceof HTMLTextAreaElement
+        ? { start: activeEl.selectionStart, end: activeEl.selectionEnd }
+        : null;
 
-      // 准确测量所有内容的真实自然高度（剔除 flex: 1 的拉伸影响）
+      // scrollHeight 已包含完整可滚动内容，无需临时修改 flex，避免重置编辑表单滚动范围。
       let childrenH = 0;
       for (const child of content.children) {
         const style = getComputedStyle(child);
         const mt = parseFloat(style.marginTop) || 0;
         const mb = parseFloat(style.marginBottom) || 0;
-
-        // 临时取消 flex: 1 的伸展，让它回缩到真实内容高度
-        const oldFlex = child.style.flex;
-        child.style.flex = 'none';
-
-        // 拿到没有被外力拉伸的真实高度
-        const h = child.scrollHeight;
-
-        // 恢复原状
-        child.style.flex = oldFlex;
-
-        childrenH += h + mt + mb;
+        childrenH += child.scrollHeight + mt + mb;
       }
 
       const cs = getComputedStyle(content);
       const paddingH = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
-
       const total = headerH + paddingH + childrenH;
-
-      // wrapper 最高 492px（留出 8px 给 margin 让圆角显示）
       const h = Math.max(200, Math.min(total, 492));
+      const nextHeight = h + 'px';
 
       // 必须设置 wrapper 的高度，因为 view-subpage 是绝对定位(height: 100%)，依赖它！
-      wrapper.style.height = h + 'px';
+      if (wrapper.style.height !== nextHeight) wrapper.style.height = nextHeight;
+
+      requestAnimationFrame(() => {
+        scrollStates.forEach(({ el, top, left }) => {
+          if (el.isConnected) {
+            el.scrollTop = top;
+            el.scrollLeft = left;
+          }
+        });
+        if (activeEl?.isConnected && document.activeElement !== activeEl && typeof activeEl.focus === 'function') {
+          activeEl.focus({ preventScroll: true });
+          if (selection && typeof activeEl.setSelectionRange === 'function') {
+            activeEl.setSelectionRange(selection.start, selection.end);
+          }
+        }
+      });
     };
 
     measure();
 
     // 持续监听内容变化
     if (this._subpageObserver) this._subpageObserver.disconnect();
+    const observerOptions = this.activeSubpageModule === 'credential'
+      ? { childList: true }
+      : { childList: true, subtree: true, characterData: true };
     this._subpageObserver = new MutationObserver(() => {
-      // 测量前断开监听，避免 measure 内部修改 style 导致无限循环（滚动重置）
+      // 凭证页仅在整页 render 时重测；标签局部更新由编辑表单自身承载滚动。
       this._subpageObserver.disconnect();
       requestAnimationFrame(() => {
+        if (!wrapper.classList.contains('show-subpage') || this.activeSubpageModule !== contentId.replace('ModuleContent', '')) return;
         measure();
-        this._subpageObserver.observe(content, { childList: true, subtree: true, characterData: true });
+        this._subpageObserver?.observe(content, observerOptions);
       });
     });
-    this._subpageObserver.observe(content, { childList: true, subtree: true, characterData: true });
+    this._subpageObserver.observe(content, observerOptions);
   }
 
   /**
@@ -885,22 +900,36 @@ class PopupManager {
     if (dataToImport.credentialProjects) {
       const result = await chrome.storage.local.get(['credentialProjects']);
       const existing = result.credentialProjects || [];
+      existing.forEach(project => {
+        (project.credentials || []).forEach(credential => {
+          credential.note = CredentialTagUtils.normalizeTags(credential.note);
+        });
+      });
       const importing = dataToImport.credentialProjects;
 
       importing.forEach(importProject => {
         const existingProject = existing.find(p => p.name === importProject.name);
         if (existingProject) {
           (importProject.credentials || []).forEach(cred => {
-            const existingCred = existingProject.credentials.find(c => c.username === cred.username);
+            const importedCred = Object.assign({}, cred, {
+              note: CredentialTagUtils.normalizeTags(cred.note),
+            });
+            const existingCred = existingProject.credentials.find(c =>
+              c.username === importedCred.username && CredentialTagUtils.tagsEqual(c.note, importedCred.note));
             if (existingCred) {
-              Object.assign(existingCred, cred, { id: existingCred.id });
+              Object.assign(existingCred, importedCred, { id: existingCred.id });
             } else {
-              existingProject.credentials.push(cred);
+              existingProject.credentials.push(importedCred);
             }
           });
           existingProject.updatedAt = Date.now();
         } else {
-          existing.push(importProject);
+          const normalizedProject = Object.assign({}, importProject, {
+            credentials: (importProject.credentials || []).map(cred => Object.assign({}, cred, {
+              note: CredentialTagUtils.normalizeTags(cred.note),
+            })),
+          });
+          existing.push(normalizedProject);
         }
       });
 

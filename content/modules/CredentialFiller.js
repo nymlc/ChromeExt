@@ -23,6 +23,7 @@ class CredentialFiller extends BaseContentModule {
         this._parentMessageHandler = null;
         this.credentialViewMode = 'tab'; // tab | list，默认 tab
         this.activeTabIndex = 0;
+        this.activeTagKey = null;
     }
 
     get currentProject() { return this._currentProject; }
@@ -368,20 +369,20 @@ class CredentialFiller extends BaseContentModule {
             return 0;
         });
 
-        // 计算 tab 分组
+        // 标签是多值分类，Tab 仅用于浏览标签集合。
         const namedGroups = [];
         sorted.forEach(c => {
-            const ns = Array.isArray(c.note) ? c.note : (c.note ? [c.note] : []);
-            ns.forEach(n => { if (!namedGroups.includes(n)) namedGroups.push(n); });
-            if (ns.length === 0 && !namedGroups.includes('')) namedGroups.push('');
+            CredentialTagUtils.normalizeTags(c.note).forEach(tag => {
+                if (!namedGroups.some(item => CredentialTagUtils.keyOf(item) === CredentialTagUtils.keyOf(tag))) {
+                    namedGroups.push(tag);
+                }
+            });
         });
-        const hasUngroupedMain = sorted.some(c => {
-            const ns = Array.isArray(c.note) ? c.note : (c.note ? [c.note] : []);
-            return ns.length === 0;
-        });
-        if (hasUngroupedMain && !namedGroups.includes('')) namedGroups.push('');
-        const useTabMode = this.credentialViewMode === 'tab' && namedGroups.filter(n => n !== '').length > 0 && namedGroups.length > 1;
-        if (this.activeTabIndex >= namedGroups.length) this.activeTabIndex = 0;
+        const hasUngroupedMain = sorted.some(c => CredentialTagUtils.normalizeTags(c.note).length === 0);
+        const tabGroups = hasUngroupedMain ? [...namedGroups, ''] : namedGroups;
+        const useTabMode = this.credentialViewMode === 'tab' && namedGroups.length > 0;
+        if (!tabGroups.some(tag => tag === this.activeTagKey)) this.activeTagKey = tabGroups[0] ?? null;
+        this.activeTabIndex = Math.max(0, tabGroups.indexOf(this.activeTagKey));
 
         const buildCredItem = (cred, currentTabKey) => {
             const item = document.createElement('div');
@@ -406,15 +407,15 @@ class CredentialFiller extends BaseContentModule {
             item.appendChild(labelLine);
             item.appendChild(userLine);
 
-            const notes = Array.isArray(cred.note) ? cred.note : (cred.note ? [cred.note] : []);
-            const tagsToShow = useTabMode ? notes.filter(n => n !== currentTabKey) : notes;
+            const tagsToShow = CredentialTagUtils.normalizeTags(cred.note);
             if (tagsToShow.length > 0) {
                 const noteRow = document.createElement('div');
                 noteRow.style.cssText = 'display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px;';
                 tagsToShow.forEach(tag => {
+                    const isCurrent = useTabMode && CredentialTagUtils.keyOf(tag) === CredentialTagUtils.keyOf(currentTabKey || '');
                     const tagEl = document.createElement('span');
                     tagEl.textContent = tag;
-                    tagEl.style.cssText = 'font-size: 11px; color: #996b00; background: #fffbf0; border-radius: 4px; padding: 1px 5px; border: 1px solid #f0c060; line-height: 1.5;';
+                    tagEl.style.cssText = `font-size: 11px; color: ${isCurrent ? '#5b3db2' : '#996b00'}; background: ${isCurrent ? '#f0ebff' : '#fffbf0'}; border-radius: 4px; padding: 1px 5px; border: 1px solid ${isCurrent ? '#a890e8' : '#f0c060'}; line-height: 1.5;`;
                     noteRow.appendChild(tagEl);
                 });
                 item.appendChild(noteRow);
@@ -453,22 +454,23 @@ class CredentialFiller extends BaseContentModule {
 
             const renderTabContent = (idx) => {
                 contentArea.innerHTML = '';
-                const key = namedGroups[idx];
+                const key = tabGroups[idx];
                 const filteredCreds = sorted.filter(c => {
-                    const ns = Array.isArray(c.note) ? c.note : (c.note ? [c.note] : []);
-                    return key === '' ? ns.length === 0 : ns.includes(key);
+                    const tags = CredentialTagUtils.normalizeTags(c.note);
+                    return key === '' ? tags.length === 0 : CredentialTagUtils.hasTag(tags, key);
                 });
                 filteredCreds.forEach(cred => contentArea.appendChild(buildCredItem(cred, key)));
             };
 
-            namedGroups.forEach((tabKey, idx) => {
-                const isActive = idx === this.activeTabIndex;
+            tabGroups.forEach((tabKey, idx) => {
+                const isActive = tabKey === this.activeTagKey;
                 const tab = document.createElement('div');
                 tab.textContent = tabKey === '' ? '其他' : tabKey;
                 tab.style.cssText = `padding: 6px 12px; font-size: 11px; cursor: pointer; white-space: nowrap; border-bottom: 2px solid ${isActive ? '#667eea' : 'transparent'}; color: ${isActive ? '#667eea' : '#999'}; font-weight: ${isActive ? '600' : '400'}; transition: color 0.15s; background: transparent;`;
                 tab.addEventListener('mousedown', (e) => {
                     e.preventDefault();
                     this.activeTabIndex = idx;
+                    this.activeTagKey = tabKey;
                     Array.from(tabBar.children).forEach((t, i) => {
                         const a = i === idx;
                         t.style.borderBottomColor = a ? '#667eea' : 'transparent';
@@ -520,12 +522,7 @@ class CredentialFiller extends BaseContentModule {
         const handleCollect = async (e) => {
             e.preventDefault();
             this._isSelecting = true;
-            const currentTabKey = useTabMode
-                && Number.isInteger(this.activeTabIndex)
-                && this.activeTabIndex >= 0
-                && this.activeTabIndex < namedGroups.length
-                ? namedGroups[this.activeTabIndex]
-                : null;
+            const currentTabKey = useTabMode ? this.activeTagKey : null;
             await this.collectCurrentCredential(currentTabKey);
             this.hideCredentialPopup();
         };
@@ -610,14 +607,19 @@ class CredentialFiller extends BaseContentModule {
         this._anchorEl = anchor;
 
         // 构建凭证列表
-        const iframeTabGroups = [];
+        const iframeNamedGroups = [];
         credentials.forEach(c => {
-            const ns = Array.isArray(c.note) ? c.note : (c.note ? [c.note] : []);
-            ns.forEach(n => { if (!iframeTabGroups.includes(n)) iframeTabGroups.push(n); });
-            if (ns.length === 0 && !iframeTabGroups.includes('')) iframeTabGroups.push('');
+            CredentialTagUtils.normalizeTags(c.note).forEach(tag => {
+                if (!iframeNamedGroups.some(item => CredentialTagUtils.keyOf(item) === CredentialTagUtils.keyOf(tag))) {
+                    iframeNamedGroups.push(tag);
+                }
+            });
         });
-        const iframeUseTab = this.credentialViewMode === 'tab' && iframeTabGroups.filter(n => n !== '').length > 0 && iframeTabGroups.length > 1;
-        if (this.activeTabIndex >= iframeTabGroups.length) this.activeTabIndex = 0;
+        const iframeHasUngrouped = credentials.some(c => CredentialTagUtils.normalizeTags(c.note).length === 0);
+        const iframeTabGroups = iframeHasUngrouped ? [...iframeNamedGroups, ''] : iframeNamedGroups;
+        const iframeUseTab = this.credentialViewMode === 'tab' && iframeNamedGroups.length > 0;
+        if (!iframeTabGroups.some(tag => tag === this.activeTagKey)) this.activeTagKey = iframeTabGroups[0] ?? null;
+        this.activeTabIndex = Math.max(0, iframeTabGroups.indexOf(this.activeTagKey));
 
         const buildIframeItem = (cred, currentTabKey) => {
             const item = document.createElement('div');
@@ -638,15 +640,15 @@ class CredentialFiller extends BaseContentModule {
             item.appendChild(labelLine);
             item.appendChild(userLine);
 
-            const notes = Array.isArray(cred.note) ? cred.note : (cred.note ? [cred.note] : []);
-            const tagsToShow = iframeUseTab ? notes.filter(n => n !== currentTabKey) : notes;
+            const tagsToShow = CredentialTagUtils.normalizeTags(cred.note);
             if (tagsToShow.length > 0) {
                 const noteRow = document.createElement('div');
                 noteRow.style.cssText = 'display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px;';
                 tagsToShow.forEach(tag => {
+                    const isCurrent = iframeUseTab && CredentialTagUtils.keyOf(tag) === CredentialTagUtils.keyOf(currentTabKey || '');
                     const tagEl = document.createElement('span');
                     tagEl.textContent = tag;
-                    tagEl.style.cssText = 'font-size: 11px; color: #996b00; background: #fffbf0; border-radius: 4px; padding: 1px 5px; border: 1px solid #f0c060; line-height: 1.5;';
+                    tagEl.style.cssText = `font-size: 11px; color: ${isCurrent ? '#5b3db2' : '#996b00'}; background: ${isCurrent ? '#f0ebff' : '#fffbf0'}; border-radius: 4px; padding: 1px 5px; border: 1px solid ${isCurrent ? '#a890e8' : '#f0c060'}; line-height: 1.5;`;
                     noteRow.appendChild(tagEl);
                 });
                 item.appendChild(noteRow);
@@ -680,19 +682,20 @@ class CredentialFiller extends BaseContentModule {
                 contentArea.innerHTML = '';
                 const key = iframeTabGroups[idx];
                 credentials.filter(c => {
-                    const ns = Array.isArray(c.note) ? c.note : (c.note ? [c.note] : []);
-                    return key === '' ? ns.length === 0 : ns.includes(key);
+                    const tags = CredentialTagUtils.normalizeTags(c.note);
+                    return key === '' ? tags.length === 0 : CredentialTagUtils.hasTag(tags, key);
                 }).forEach(cred => contentArea.appendChild(buildIframeItem(cred, key)));
             };
 
             iframeTabGroups.forEach((tabKey, idx) => {
-                const isActive = idx === this.activeTabIndex;
+                const isActive = tabKey === this.activeTagKey;
                 const tab = document.createElement('div');
                 tab.textContent = tabKey === '' ? '其他' : tabKey;
                 tab.style.cssText = `padding: 6px 12px; font-size: 11px; cursor: pointer; white-space: nowrap; border-bottom: 2px solid ${isActive ? '#667eea' : 'transparent'}; color: ${isActive ? '#667eea' : '#999'}; font-weight: ${isActive ? '600' : '400'}; transition: color 0.15s; background: transparent;`;
                 tab.addEventListener('mousedown', (e) => {
                     e.preventDefault();
                     this.activeTabIndex = idx;
+                    this.activeTagKey = tabKey;
                     Array.from(tabBar.children).forEach((t, i) => {
                         const a = i === idx;
                         t.style.borderBottomColor = a ? '#667eea' : 'transparent';
@@ -732,12 +735,7 @@ class CredentialFiller extends BaseContentModule {
 
         const handleCollect = (ev) => {
             ev.preventDefault();
-            const currentTabKey = iframeUseTab
-                && Number.isInteger(this.activeTabIndex)
-                && this.activeTabIndex >= 0
-                && this.activeTabIndex < iframeTabGroups.length
-                ? iframeTabGroups[this.activeTabIndex]
-                : null;
+            const currentTabKey = iframeUseTab ? this.activeTagKey : null;
             this._iframeSource?.postMessage(JSON.stringify({ type: 'CREDENTIAL_FILLER_COLLECT', currentTabKey }), '*');
             this.hideCredentialPopup();
         };
@@ -1014,14 +1012,7 @@ class CredentialFiller extends BaseContentModule {
      * 比较两个标签集合是否等价（忽略顺序、首尾空格、空标签）。
      */
     tagsEqual(a, b) {
-        const normalize = (tags) => (Array.isArray(tags) ? tags : (tags ? [tags] : []))
-            .map(tag => String(tag).trim())
-            .filter(Boolean)
-            .sort();
-        const normalizedA = normalize(a);
-        const normalizedB = normalize(b);
-        return normalizedA.length === normalizedB.length
-            && normalizedA.every((tag, index) => tag === normalizedB[index]);
+        return CredentialTagUtils.tagsEqual(a, b);
     }
 
     /**
@@ -1096,17 +1087,25 @@ class CredentialFiller extends BaseContentModule {
             }
         }
 
-        const normalizedTabKey = typeof currentTabKey === 'string'
-            ? currentTabKey.trim()
-            : '';
-        const note = normalizedTabKey ? [normalizedTabKey] : [];
-        const existingIdx = project.credentials.findIndex(c => (
+        const contextTag = CredentialTagUtils.normalizeTags(currentTabKey)[0] || '';
+        const note = contextTag ? [contextTag] : [];
+        let existingIdx = project.credentials.findIndex(c => (
             c.username === username && this.tagsEqual(c.note, note)
         ));
+        // 当前标签命中唯一多标签凭证时，更新它但保留完整标签集合。
+        if (existingIdx < 0 && contextTag) {
+            const contextMatches = project.credentials
+                .map((credential, index) => ({ credential, index }))
+                .filter(({ credential }) => credential.username === username
+                    && CredentialTagUtils.hasTag(credential.note, contextTag));
+            if (contextMatches.length === 1) existingIdx = contextMatches[0].index;
+        }
         let msg = '';
         if (existingIdx >= 0) {
-            project.credentials[existingIdx].password = password;
-            project.credentials[existingIdx].customFields = customFields;
+            const existing = project.credentials[existingIdx];
+            existing.password = password;
+            existing.customFields = customFields;
+            existing.note = CredentialTagUtils.normalizeTags(existing.note);
             msg = '已覆盖更新该账号凭证！';
         } else {
             project.credentials.push({
