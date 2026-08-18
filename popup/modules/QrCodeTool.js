@@ -27,6 +27,8 @@ class QrCodeTool extends BaseModule {
       ?.addEventListener('input', () => this._scheduleGenerate());
     document.getElementById('qrcodeGenDownload')
       ?.addEventListener('click', () => this._download());
+    document.getElementById('qrcodeGenCopy')
+      ?.addEventListener('click', () => this._copyImage());
 
     // 解码：选择图片 / 粘贴图片
     document.getElementById('qrcodeDecodeFile')
@@ -80,6 +82,26 @@ class QrCodeTool extends BaseModule {
     document.body.appendChild(a);
     a.click();
     a.remove();
+  }
+
+  /** 把生成的二维码以 PNG 图片形式复制到剪贴板（可粘贴进微信/文档等） */
+  async _copyImage() {
+    const canvas = document.getElementById('qrcodeGenCanvas');
+    if (!canvas || !this._lastGenText) return;
+    try {
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+      if (!blob) throw new Error('生成图片失败');
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      Toast.success('已复制图片');
+    } catch (e) {
+      // 部分环境不支持图片剪贴板（如非 https 上下文），降级为复制文本内容
+      try {
+        await navigator.clipboard.writeText(this._lastGenText);
+        Toast.success('已复制文本（当前环境不支持复制图片）');
+      } catch (_) {
+        Toast.error('复制失败');
+      }
+    }
   }
 
   // ───────── 解码 ─────────

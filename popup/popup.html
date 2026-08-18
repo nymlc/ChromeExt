@@ -272,7 +272,10 @@
           <textarea id="qrcodeGenInput" placeholder="输入文本或网址…" rows="3" style="width:100%; resize:vertical; border:1px solid #e0e0e0; border-radius:8px; padding:8px; font-size:13px; font-family:inherit; box-sizing:border-box;"></textarea>
           <div id="qrcodeGenStatus" style="display:none; color:#ff9500; font-size:12px;"></div>
           <canvas id="qrcodeGenCanvas" style="display:none; margin:4px auto 0; background:#fff; border:1px solid #e0e0e0; border-radius:8px; padding:4px; max-width:100%;"></canvas>
-          <button id="qrcodeGenDownload" class="btn btn-secondary btn-small" style="align-self:flex-start;">下载 PNG</button>
+          <div style="display:flex; gap:8px; align-self:flex-start;">
+            <button id="qrcodeGenDownload" class="btn btn-secondary btn-small">下载 PNG</button>
+            <button id="qrcodeGenCopy" class="btn btn-secondary btn-small">复制图片</button>
+          </div>
         </div>
         <div class="setting-item" style="flex-direction:column; align-items:stretch; gap:8px; margin-top:14px;">
           <div style="font-weight:600;">解码二维码（上传 / 粘贴图片）</div>

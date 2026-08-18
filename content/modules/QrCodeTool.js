@@ -96,6 +96,24 @@ class QrCodeTool extends BaseContentModule {
         a.click();
       };
       panel.actions.appendChild(dl);
+
+      const copy = this._btn('复制图片');
+      copy.onclick = async () => {
+        try {
+          const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+          if (!blob) throw new Error('生成图片失败');
+          await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+          if (typeof Toast !== 'undefined') Toast.success('已复制图片');
+        } catch (e) {
+          try {
+            await navigator.clipboard.writeText(text);
+            if (typeof Toast !== 'undefined') Toast.success('已复制文本（当前环境不支持复制图片）');
+          } catch (_) {
+            if (typeof Toast !== 'undefined') Toast.error('复制失败');
+          }
+        }
+      };
+      panel.actions.appendChild(copy);
     } catch (e) {
       this._setBody('<div style="padding:16px;color:#ff9500;font-size:13px;">生成失败：' + (e && e.message ? e.message : e) + '</div>');
     }
