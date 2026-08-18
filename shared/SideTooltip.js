@@ -20,6 +20,7 @@ class SideTooltip {
     this.width = options.width ?? 260;
     this.className = options.className || 'side-tooltip';
     this.placement = options.placement || 'auto';
+    this.arrow = options.arrow !== false; // 是否显示指向目标的箭头（默认显示）
 
     this.popupEl = null;
     this._arrowEl = null;
@@ -65,26 +66,30 @@ class SideTooltip {
 
     // 创建箭头元素（独立于 popup，避免被 overflow:hidden 裁剪）
     // z-index 比 popup 高，显示在弹框上层形成无缝连接效果
-    const arrow = document.createElement('div');
-    arrow.className = `${this.className}-arrow`;
-    arrow.style.cssText = `
-      position: fixed;
-      width: 12px;
-      height: 12px;
-      background: #fff;
-      transform: rotate(45deg);
-      z-index: 2147483647;
-      pointer-events: none;
-      box-shadow: -2px 2px 4px rgba(0,0,0,0.06);
-    `;
-    this._arrowEl = arrow;
+    // 可通过 options.arrow=false 关闭（如凭证浮层：避免箭头压在 tab 栏上遮挡内容）
+    let arrow = null;
+    if (this.arrow) {
+      arrow = document.createElement('div');
+      arrow.className = `${this.className}-arrow`;
+      arrow.style.cssText = `
+        position: fixed;
+        width: 12px;
+        height: 12px;
+        background: #fff;
+        transform: rotate(45deg);
+        z-index: 2147483647;
+        pointer-events: none;
+        box-shadow: -2px 2px 4px rgba(0,0,0,0.06);
+      `;
+      this._arrowEl = arrow;
+    }
 
     // 追加内容
     const contents = Array.isArray(content) ? content : [content];
     contents.forEach(el => popup.appendChild(el));
 
     document.body.appendChild(popup);
-    document.body.appendChild(arrow);
+    if (arrow) document.body.appendChild(arrow);
     this.popupEl = popup;
     this._position();
 

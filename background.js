@@ -88,19 +88,38 @@ if (chrome.contextMenus) {
   ensureMenus();
   chrome.runtime.onInstalled.addListener(ensureMenus);
 
+  // 二维码右键菜单发送失败时（如扩展重载后页面内容脚本未就绪、或二维码工具被禁用），
+  // 在页面注入一条临时 toast，把静默失败变成可见、可操作的提示（临时、非持久 badge）。
+  const notifyQrNoReceiver = (tabId) => {
+    const text = '二维码解码失败：请刷新页面后重试；若仍失败，请到扩展弹窗中确认「二维码工具」已启用';
+    chrome.scripting.executeScript({
+      target: { tabId },
+      func: (msg) => {
+        try {
+          const t = document.createElement('div');
+          t.textContent = msg;
+          t.style.cssText = 'position:fixed;left:50%;top:20px;transform:translateX(-50%);z-index:2147483647;max-width:90vw;background:#333;color:#fff;padding:10px 16px;border-radius:8px;font-size:13px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;box-shadow:0 6px 20px rgba(0,0,0,0.3);line-height:1.4;';
+          (document.documentElement || document.body).appendChild(t);
+          setTimeout(() => t.remove(), 4000);
+        } catch (_) {}
+      },
+      args: [text],
+    }).catch(() => {});
+  };
+
   chrome.contextMenus.onClicked.addListener((info, tab) => {
     if (!tab || tab.id == null) return;
     if (info.menuItemId === 'qr-generate') {
-      chrome.tabs.sendMessage(tab.id, { type: 'qr-generate', text: info.selectionText || '' });
+      chrome.tabs.sendMessage(tab.id, { type: 'qr-generate', text: info.selectionText || '' }).catch(() => notifyQrNoReceiver(tab.id));
     } else if (info.menuItemId === 'qr-decode') {
       const tabId = tab.id;
       // 由 content 脚本根据右键目标元素完成解码：
       // 有 srcUrl（<img> 右键）走 qr-decode-image；否则（背景图/Canvas）走 qr-decode-page。
       // 实际抓取图片字节由 content 通过 qr-fetch-image 请求后台完成（带 host 权限 + cookie）。
       if (info.srcUrl) {
-        chrome.tabs.sendMessage(tabId, { type: 'qr-decode-image', srcUrl: info.srcUrl });
+        chrome.tabs.sendMessage(tabId, { type: 'qr-decode-image', srcUrl: info.srcUrl }).catch(() => notifyQrNoReceiver(tabId));
       } else {
-        chrome.tabs.sendMessage(tabId, { type: 'qr-decode-page' });
+        chrome.tabs.sendMessage(tabId, { type: 'qr-decode-page' }).catch(() => notifyQrNoReceiver(tabId));
       }
     }
   });

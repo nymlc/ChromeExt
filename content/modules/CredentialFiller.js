@@ -540,6 +540,13 @@ class CredentialFiller extends BaseContentModule {
         const listContainer = document.createElement('div');
         listContainer.style.cssText = 'flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; display: flex; flex-direction: column;';
 
+        // 顶部标题条：占位 ~28px，让 SideTooltip 的指向箭头落在标题区，不压住下方 tab 栏
+        const headerEl = document.createElement('div');
+        headerEl.textContent = this.currentProject?.name || '凭证管理';
+        headerEl.title = this.currentProject?.name || '';
+        headerEl.style.cssText = 'flex-shrink: 0; padding: 7px 14px; font-size: 12px; font-weight: 600; color: #555; background: #fff; border-bottom: 1px solid #e8eaf6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;';
+        listContainer.appendChild(headerEl);
+
         if (useTabMode) {
             const tabBar = document.createElement('div');
             tabBar.style.cssText = 'display: flex; overflow-x: auto; border-bottom: 1px solid #e8eaf6; background: #fafbff; flex-shrink: 0; scrollbar-width: none;';
@@ -892,6 +899,13 @@ class CredentialFiller extends BaseContentModule {
 
         const listContainer = document.createElement('div');
         listContainer.style.cssText = 'flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; display: flex; flex-direction: column;';
+
+        // 顶部标题条：占位 ~28px，让 SideTooltip 的指向箭头落在标题区，不压住下方 tab 栏
+        const headerEl = document.createElement('div');
+        headerEl.textContent = this.currentProject?.name || '凭证管理';
+        headerEl.title = this.currentProject?.name || '';
+        headerEl.style.cssText = 'flex-shrink: 0; padding: 7px 14px; font-size: 12px; font-weight: 600; color: #555; background: #fff; border-bottom: 1px solid #e8eaf6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;';
+        listContainer.appendChild(headerEl);
 
         if (iframeUseTab) {
             const tabBar = document.createElement('div');
