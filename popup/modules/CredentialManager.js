@@ -55,6 +55,22 @@ class CredentialManager extends BaseModule {
             this.currentView = 'detail';
         }
 
+        // 监听凭证项目存储变更（如页面浮层内拖拽排序、其它标签页采集等），
+        // 实时重载 projects 并刷新 currentProject 引用后重渲染，避免弹窗显示旧顺序。
+        // 编辑视图（editCred）下只更新数据不重渲染，避免打断正在填写的表单。
+        this._onCredentialProjectsChanged = (changes, area) => {
+            if (area && area !== 'local') return;
+            if (!changes || !changes.credentialProjects) return;
+            (async () => {
+                await this.loadProjects();
+                if (this.currentProject) {
+                    this.currentProject = this.projects.find(p => p.id === this.currentProject.id) || this.currentProject;
+                }
+                if (this.currentView !== 'editCred') this.render();
+            })();
+        };
+        chrome.storage.onChanged.addListener(this._onCredentialProjectsChanged);
+
         this.render();
         this.updateModuleUI();
     }
@@ -675,48 +691,108 @@ class CredentialManager extends BaseModule {
                 labelSpan.textContent = tabLabel;
                 tab.appendChild(labelSpan);
                 tab.title = isUngrouped ? '其他分组（固定末尾，不参与排序）' : '拖动可调整顺序';
-                // 命名标签页支持拖拽排序（「其他」固定末尾不参与）
+                // 命名标签页支持拖拽排序（「其他」固定末尾不参与）。
+                // 采用指针事件实现（非原生 HTML5 DnD）：扩展 popup 内原生拖拽会话极易被中断、
+                // drop 不触发，指针事件更稳定、落点更可控。
                 if (!isUngrouped) {
-                    tab.draggable = true;
-                    tab.addEventListener('dragstart', (e) => {
-                        e.dataTransfer.setData('text/plain', tabKey);
-                        e.dataTransfer.effectAllowed = 'move';
-                        tab.classList.add('cmf-dragging');
-                        tab.style.opacity = '0.55';
-                        tab.style.boxShadow = '0 3px 8px rgba(102,126,234,0.35)';
-                        document.body.style.cursor = 'grabbing';
-                    });
-                    tab.addEventListener('dragend', () => {
-                        tab.classList.remove('cmf-dragging');
-                        tab.style.opacity = '';
-                        tab.style.boxShadow = '';
-                        document.body.style.cursor = '';
-                        dropLine.style.display = 'none';
-                    });
-                    tab.addEventListener('dragover', (e) => {
-                        if (e.dataTransfer) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }
-                        const rect = tab.getBoundingClientRect();
-                        const barRect = tabBar.getBoundingClientRect();
-                        const after = (e.clientX - rect.left) > rect.width / 2;
-                        const edge = after ? rect.right : rect.left;
-                        dropLine.style.left = (edge - barRect.left - 1.5) + 'px';
-                        dropLine.style.display = 'block';
-                        tab.style.background = '#f0f1ff';
-                        tab._dropAfter = after;
-                    });
-                    tab.addEventListener('dragleave', () => {
-                        tab.style.background = '';
-                    });
-                    tab.addEventListener('drop', (e) => {
-                        e.preventDefault();
-                        const dragged = e.dataTransfer ? e.dataTransfer.getData('text/plain') : '';
-                        const after = tab._dropAfter;
-                        tab.style.background = '';
-                        dropLine.style.display = 'none';
-                        this.reorderTabGroups(dragged, tabKey, after ? 'after' : 'before');
+                    tab.style.userSelect = 'none';
+                    tab.style.webkitUserSelect = 'none';
+                    tab.addEventListener('pointerdown', (e) => {
+                        if (e.button !== 0) return; // 仅响应左键
+                        // setPointerCapture：即便光标短暂离开 popup 窗口也能持续收到 pointermove/up
+                        let captured = false;
+                        try { tab.setPointerCapture(e.pointerId); captured = true; } catch (_) {}
+                        const st = {
+                            startX: e.clientX, startY: e.clientY,
+                            dragging: false,
+                            srcKey: tabKey, srcTab: tab,
+                            targetTab: null, targetKey: null, targetAfter: false,
+                        };
+                        const clearTargets = () => {
+                            tabBar.querySelectorAll('.cmf-drop-target').forEach(t => {
+                                t.style.background = '';
+                                t.classList.remove('cmf-drop-target');
+                            });
+                        };
+                        const onMove = (ev) => {
+                            if (!st.dragging) {
+                                const dx = ev.clientX - st.startX, dy = ev.clientY - st.startY;
+                                if (Math.hypot(dx, dy) < 4) return; // 阈值：区分点击与拖拽
+                                st.dragging = true;
+                                st.srcTab.classList.add('cmf-dragging');
+                                st.srcTab.style.opacity = '0.55';
+                                st.srcTab.style.boxShadow = '0 3px 8px rgba(102,126,234,0.35)';
+                                dropLine.style.display = 'block';
+                                document.body.style.cursor = 'grabbing';
+                            }
+                            clearTargets();
+                            // 基于光标 x 计算「有效落点」：整行命中（标签间缝隙/边缘也算），
+                            // 且仅当会产生真实顺序变化时才显示指示线并允许落定——避免「拖了没反应」。
+                            const barRect = tabBar.getBoundingClientRect();
+                            const cx = ev.clientX, cy = ev.clientY;
+                            const inRow = cy >= barRect.top - 10 && cy <= barRect.bottom + 10
+                                       && cx >= barRect.left - 10 && cx <= barRect.right + 10;
+                            let landTarget = null, landAfter = false, landLeft = 0, changed = false;
+                            if (inRow) {
+                                const namedEls = [...tabBar.querySelectorAll('[data-tab-key]')]
+                                    .filter(t => t.dataset.tabKey && t.dataset.tabKey !== '');
+                                const others = namedEls.filter(t => t !== st.srcTab);
+                                const ins = others.filter(t => {
+                                    const r = t.getBoundingClientRect();
+                                    return cx > r.left + r.width / 2;
+                                }).length;
+                                const curOrder = namedEls.map(t => t.dataset.tabKey);
+                                const newOrder = others.map(t => t.dataset.tabKey);
+                                newOrder.splice(ins, 0, st.srcKey);
+                                changed = newOrder.length === curOrder.length
+                                       && newOrder.some((k, i) => k !== curOrder[i]);
+                                if (changed) {
+                                    if (ins < others.length) {
+                                        landTarget = others[ins];
+                                        landAfter = false;
+                                    } else {
+                                        landTarget = others[others.length - 1];
+                                        landAfter = true;
+                                    }
+                                    const r = landTarget.getBoundingClientRect();
+                                    landLeft = (landAfter ? r.right : r.left) - barRect.left - 1.5;
+                                }
+                            }
+                            if (changed && landTarget) {
+                                dropLine.style.left = landLeft + 'px';
+                                dropLine.style.display = 'block';
+                                landTarget.style.background = '#f0f1ff';
+                                landTarget.classList.add('cmf-drop-target');
+                                st.targetTab = landTarget;
+                                st.targetKey = landTarget.dataset.tabKey;
+                                st.targetAfter = landAfter;
+                            } else {
+                                dropLine.style.display = 'none';
+                                st.targetTab = null; st.targetKey = null;
+                            }
+                        };
+                        const onUp = (ev) => {
+                            document.removeEventListener('pointermove', onMove);
+                            document.removeEventListener('pointerup', onUp);
+                            document.body.style.cursor = '';
+                            if (captured) { try { tab.releasePointerCapture(ev.pointerId); } catch (_) {} }
+                            dropLine.style.display = 'none';
+                            clearTargets();
+                            if (!st.dragging) return; // 未发生拖拽，按普通点击处理
+                            st.srcTab.classList.remove('cmf-dragging');
+                            st.srcTab.style.opacity = '';
+                            st.srcTab.style.boxShadow = '';
+                            if (st.targetKey && st.targetKey !== st.srcKey) {
+                                this._suppressNextClick = true;
+                                this.reorderTabGroups(st.srcKey, st.targetKey, st.targetAfter ? 'after' : 'before');
+                            }
+                        };
+                        document.addEventListener('pointermove', onMove);
+                        document.addEventListener('pointerup', onUp);
                     });
                 }
                 tab.addEventListener('click', () => {
+                    if (this._suppressNextClick) { this._suppressNextClick = false; return; }
                     this.activeTabIndex = idx;
                     this.activeTagKey = tabKey;
                     this.render();
