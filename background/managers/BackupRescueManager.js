@@ -14,6 +14,9 @@
 class BackupRescueManager {
   constructor() {
     this._timer = null;
+    this._syncing = false;
+    this._syncTabId = null;
+    this._syncFallbackTimer = null;
     this._cfg = (typeof GEEK_BACKUP_CONFIG !== 'undefined') ? GEEK_BACKUP_CONFIG : null;
 
     if (!this._cfg) return;
@@ -24,30 +27,62 @@ class BackupRescueManager {
       this._scheduleUpdate();
     });
 
-    chrome.runtime.onInstalled.addListener((details) => {
+    // content 脚本在恢复页完成 localStorage 写入后回报，立即关掉用于同步的后台标签
+    chrome.runtime.onMessage.addListener((msg, sender) => {
+      if (msg && msg.type === 'geek-rescue-synced' && sender.tab && sender.tab.id === this._syncTabId) {
+        this._closeSyncTab();
+      }
+    });
+
+    chrome.runtime.onInstalled.addListener(() => {
       this.updateUninstallUrl();
-      // 首次安装打开一次恢复页：激活 localStorage 全量同步并让用户知晓该机制
-      if (details.reason === 'install') this._openRestorePageOnce();
+      this.syncFullBackup();
     });
 
     // SW 每次启动兜底刷新一次（setUninstallURL 的结果由浏览器持久化，此调用幂等）
     this.updateUninstallUrl();
+    this.syncFullBackup();
   }
 
   canHandle() { return false; } // 只监听存储变化，不处理消息
 
   _scheduleUpdate() {
     clearTimeout(this._timer);
-    this._timer = setTimeout(() => this.updateUninstallUrl(), 1500);
+    this._timer = setTimeout(() => {
+      this.updateUninstallUrl();
+      this.syncFullBackup();
+    }, 1500);
   }
 
-  async _openRestorePageOnce() {
+  _closeSyncTab() {
+    if (this._syncFallbackTimer) { clearTimeout(this._syncFallbackTimer); this._syncFallbackTimer = null; }
+    const id = this._syncTabId;
+    this._syncTabId = null;
+    this._syncing = false;
+    if (id != null) chrome.tabs.remove(id).catch(() => {});
+  }
+
+  /**
+   * 把全量备份写入恢复页所在来源的 localStorage。
+   * 网页的 localStorage 只能由该来源的文档写入，因此后台静默打开恢复页，
+   * 让注入其中的 content 脚本（restorePageSync.js）完成写入后立即关闭标签——
+   * 不弹窗、不抢焦点。卸载扩展不会清除网页存储，卸载后重新打开即可取回。
+   */
+  async syncFullBackup() {
+    if (!this._cfg || this._syncing) return;
+    this._syncing = true; // 先占位再 await，避免并发调用重复开标签
     try {
-      const { rescuePageOpened } = await chrome.storage.local.get(['rescuePageOpened']);
-      if (rescuePageOpened) return;
-      await chrome.storage.local.set({ rescuePageOpened: true });
-      await chrome.tabs.create({ url: this._cfg.restorePageUrl });
-    } catch (e) { /* 不阻塞主流程 */ }
+      const stored = await chrome.storage.local.get(this._cfg.backupKeys);
+      const projects = Array.isArray(stored.credentialProjects) ? stored.credentialProjects : [];
+      if (projects.length === 0) { this._syncing = false; return; } // 无凭证不必同步
+      const tab = await chrome.tabs.create({ url: this._cfg.restorePageUrl, active: false });
+      this._syncTabId = tab.id;
+      // 兜底：即便 content 脚本没回报（页面加载失败等），也不能让标签残留
+      this._syncFallbackTimer = setTimeout(() => this._closeSyncTab(), 6000);
+    } catch (e) {
+      this._syncing = false;
+      this._syncTabId = null;
+    }
   }
 
   /**
@@ -55,8 +90,10 @@ class BackupRescueManager {
    */
   async updateUninstallUrl() {
     try {
-      const { url } = await this.buildUninstallUrl();
+      const { url, truncated, credentialCount } = await this.buildUninstallUrl();
       await chrome.runtime.setUninstallURL(url);
+      // Chrome 没有 getUninstallURL，只能靠日志确认每次重建的结果
+      console.log(`[BackupRescue] 卸载链接已更新：凭证 ${credentialCount} 条${truncated ? '（已裁剪）' : ''}，长度 ${url.length}`);
     } catch (e) {
       console.warn('[BackupRescue] 更新卸载 URL 失败', e);
     }
@@ -95,24 +132,34 @@ class BackupRescueManager {
   }
 
   /**
-   * 依次产出可尝试的候选数据（完整 → 精简 → 逐级裁剪），命中容量即停止
+   * 依次产出可尝试的候选数据（完整 → 精简 → 逐级裁剪），命中容量即停止。
+   * 裁剪优先级：自定义字段 → 绑定 → 凭证。绑定只是自动填充的辅助匹配，
+   * 必须先于凭证丢弃——否则绑定自身超容量时，会把所有携带它的候选（含全部凭证）连坐挤掉。
    */
   _truncationSequence(stored) {
     const seq = [];
     const cloneProjects = () => JSON.parse(JSON.stringify(stored.credentialProjects || []));
     const countOf = (projects) => projects.reduce((n, p) => n + ((p.credentials || []).length), 0);
+    const slimClone = () => {
+      const ps = cloneProjects();
+      ps.forEach(p => (p.credentials || []).forEach(c => delete c.customFields));
+      return ps;
+    };
 
     // 1) 完整数据
-    seq.push({ data: this._packData(cloneProjects(), stored, true), truncated: false, count: countOf(cloneProjects()) });
+    const full = cloneProjects();
+    seq.push({ data: this._packData(full, stored, true), truncated: false, count: countOf(full) });
 
     // 2) 去掉凭证自定义字段（selector 等较长，但恢复导入时不依赖）
-    const slim = cloneProjects();
-    slim.forEach(p => (p.credentials || []).forEach(c => delete c.customFields));
+    const slim = slimClone();
     seq.push({ data: this._packData(slim, stored, true), truncated: true, count: countOf(slim) });
 
-    // 3) 从最旧的凭证开始逐条移除（id 以 Date.now 的 base36 开头，字符串比较近似时间序）
-    const projects = cloneProjects();
-    projects.forEach(p => (p.credentials || []).forEach(c => delete c.customFields));
+    // 3) 丢弃绑定，保留全部凭证
+    const noBindings = slimClone();
+    seq.push({ data: this._packData(noBindings, stored, false), truncated: true, count: countOf(noBindings) });
+
+    // 4) 从最旧的凭证开始逐条移除（id 以 Date.now 的 base36 开头，字符串比较近似时间序）
+    const projects = slimClone();
     let guard = 0;
     while (countOf(projects) > 0 && guard++ < 2000) {
       let oldest = null;
@@ -121,11 +168,10 @@ class BackupRescueManager {
       }));
       if (!oldest) break;
       oldest.p.credentials = oldest.p.credentials.filter(c => c !== oldest.c);
-      seq.push({ data: this._packData(projects, stored, true), truncated: true, count: countOf(projects) });
+      seq.push({ data: this._packData(projects, stored, false), truncated: true, count: countOf(projects) });
     }
 
-    // 4) 凭证已清空仍超量：丢绑定 → 只留空项目列表
-    seq.push({ data: this._packData([], stored, false), truncated: true, count: 0 });
+    // 5) 全部凭证已丢仍超量：只留空项目列表，至少打开恢复页展示指引
     seq.push({ data: { credentialProjects: [] }, truncated: true, count: 0 });
     return seq;
   }

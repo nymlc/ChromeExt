@@ -153,8 +153,23 @@
 
   function init() {
     var backup = readLocalStorageBackup() || readUrlBackup();
-    if (backup) renderFound(backup);
-    else renderEmpty();
+    if (backup) { renderFound(backup); return; }
+
+    // 扩展装着时，content 脚本的 localStorage 写入发生在 document_idle 之后，
+    // 可能晚于本页首次读取——短暂轮询等待，避免把"还没写到"误判成"没有备份"
+    var tries = 0;
+    var timer = setInterval(function () {
+      tries++;
+      var b = readLocalStorageBackup();
+      if (b) { clearInterval(timer); renderFound(b); }
+      else if (tries >= 30) { clearInterval(timer); renderEmpty(); }
+    }, 100);
+
+    window.addEventListener('storage', function (e) {
+      if (e.key !== STORAGE_KEY) return;
+      var b = readLocalStorageBackup();
+      if (b) { clearInterval(timer); renderFound(b); }
+    });
   }
 
   init();

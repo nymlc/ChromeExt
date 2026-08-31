@@ -30,6 +30,11 @@
         version,
         data: stored,
       }));
+      // 回报后台：写入完成，可关闭用于同步的后台标签（无接收方时静默）
+      try {
+        const p = chrome.runtime.sendMessage({ type: 'geek-rescue-synced' });
+        if (p && p.catch) p.catch(() => {});
+      } catch (e) { /* 忽略 */ }
     } catch (e) { /* 扩展上下文失效或存储不可用时静默忽略 */ }
   };
 
