@@ -286,5 +286,5 @@ class ContentManager {
   }
 }
 
-// 初始化内容管理器
-new ContentManager();
+// 初始化内容管理器（挂到全局，供 popup 通过 chrome.scripting 跨 frame 访问模块实例）
+globalThis.__geekToolboxManager = new ContentManager();

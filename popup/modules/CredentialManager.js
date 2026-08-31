@@ -1364,7 +1364,32 @@ class CredentialManager extends BaseModule {
     async scanAndSave() {
         try {
             const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-            const response = await chrome.tabs.sendMessage(tab.id, { action: 'scanPageInputs' });
+
+            // 全 frame 扫描，取已填写字段最多的一帧：
+            // sendMessage 广播由最先响应的 frame 决定结果，跨域 iframe 登录页
+            // （顶层无输入框）可能被空响应抢占而漏采，故改为逐帧直采后合并
+            let response = null;
+            try {
+                const results = await chrome.scripting.executeScript({
+                    target: { tabId: tab.id, allFrames: true },
+                    func: () => {
+                        const filler = globalThis.__geekToolboxManager?.modules?.credentialFiller;
+                        if (!filler) return null;
+                        return { success: true, fields: filler.scanInputs(), hasPasswordField: filler.hasPasswordField() };
+                    }
+                });
+                const frames = (results || [])
+                    .map(item => item && item.result)
+                    .filter(r => r && Array.isArray(r.fields));
+                frames.sort((a, b) => b.fields.length - a.fields.length);
+                response = frames[0] || null;
+            } catch (e) {
+                response = null;
+            }
+            // 注入不可用（受限页面或旧版内容脚本未挂全局实例）时回退到消息通道
+            if (!response) {
+                response = await chrome.tabs.sendMessage(tab.id, { action: 'scanPageInputs' });
+            }
 
             if (!response?.success || !response.fields?.length) {
                 Toast.warning('未检测到已填写的输入框');
@@ -1379,6 +1404,20 @@ class CredentialManager extends BaseModule {
                 value: f.value,
                 selector: f.selector
             }));
+
+            const username = (usernameField ? usernameField.value : '').trim();
+            const password = passwordField ? passwordField.value : '';
+            // 用户名/手机号是凭证的身份标识，不可缺失
+            if (!username) {
+                Toast.warning('请先填写用户名或手机号再采集');
+                return;
+            }
+            // 短信验证码等无密码登录页没有密码框可采，允许仅采集用户名/手机号；
+            // 存在可见密码框的账号密码登录页仍要求两者都完整
+            if (response.hasPasswordField && password.length === 0) {
+                Toast.warning('用户名和密码必须都填写完整才能采集');
+                return;
+            }
 
             // 采集的目标项目 = 用户当前正在查看的项目（与详情页 UI 完全一致）。
             // 若因异常缺失，则回退到按页面 title 自动匹配/新建，保证不崩溃。
@@ -1397,13 +1436,12 @@ class CredentialManager extends BaseModule {
 
             // 标签视图下才将当前标签作为采集上下文；列表视图保持无标签采集。
             const currentTabKey = this.credentialViewMode === 'tab' ? (this.activeTagKey || '') : '';
-            const username = usernameField ? usernameField.value : '';
             const contextTags = this.normalizeTags(currentTabKey);
             const newCred = {
                 id: this.generateId(),
                 label: username || '采集的凭证',
                 username,
-                password: passwordField ? passwordField.value : '',
+                password,
                 customFields,
                 note: contextTags,
                 status: 'active',

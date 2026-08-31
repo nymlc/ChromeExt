@@ -67,7 +67,7 @@ class CredentialFiller extends BaseContentModule {
         chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
             if (request.action === 'scanPageInputs') {
                 const fields = this.scanInputs();
-                sendResponse({ success: true, fields });
+                sendResponse({ success: true, fields, hasPasswordField: this.hasPasswordField() });
             } else if (request.action === 'fillCredential') {
                 this.fillCredential(request.credential);
                 sendResponse({ success: true });
@@ -196,9 +196,24 @@ class CredentialFiller extends BaseContentModule {
 
     /**
      * 检测页面是否存在密码输入框（兼容密码可见功能切换后的状态）
+     * 仅统计真实渲染的密码框：多登录方式页面（扫码/短信/密码并存）中，
+     * 整体隐藏的密码登录框不算「可填充的登录表单」，否则会误弹浮层且填充无效果
      */
     hasPasswordField() {
-        return !!document.querySelector('input[type="password"], input[data-password-toggle="true"]');
+        return Array.from(document.querySelectorAll(
+            'input[type="password"], input[data-password-toggle="true"]'
+        )).some(f => this.isFieldRendered(f));
+    }
+
+    /**
+     * 判断输入框是否真实渲染可见（排除祖先 display:none 导致的整体隐藏）
+     * 与 getVisibleInputs 的可见性口径保持一致
+     */
+    isFieldRendered(input) {
+        const style = window.getComputedStyle(input);
+        if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse') return false;
+        if (input.offsetParent === null && style.position !== 'fixed') return false;
+        return true;
     }
 
     /**
@@ -383,9 +398,10 @@ class CredentialFiller extends BaseContentModule {
      * 尝试在指定输入框弹出凭证浮层（统一前置校验，bindInput 与分步登录第二步主动触发共用）
      */
     tryShowPopup(input) {
-        // 前置条件：页面必须存在密码框（含被切换为明文显示的）才认为是登录页
-        // 分步登录第一步（仅用户名框）不弹，等第二步密码框出现再弹
-        if (!this.hasPasswordField()) return;
+        // 有可见密码框的是账号密码登录页，任意登录框聚焦都弹；
+        // 短信验证码等无密码登录页没有可见密码框，仅当聚焦的是用户名/手机号框时弹出
+        // （至少能替用户填入手机号/用户名，验证码无法代填则不弹）
+        if (!this.hasPasswordField() && this.detectFieldType(input) !== 'username') return;
 
         // 在事件触发时实时检测是否为登录输入框，避免因 DOM 动态加载顺序导致推断失败
         if (!this.isLoginInput(input)) return;
@@ -1077,6 +1093,11 @@ class CredentialFiller extends BaseContentModule {
             input.getAttribute('aria-label'),
         ].filter(Boolean).map(s => s.toLowerCase()).join(' ');
 
+        // 验证码/短信码：既不是用户名也不是密码（必须在密码关键词之前判断，
+        // 因为部分站点验证码框 id 含 password，如 dynamicPassword）
+        const codeKeywords = ['验证码', '校验码', '动态码', '短信码', '安全码', 'captcha', 'verifycode', 'smscode', 'vcode', 'authcode', 'otp'];
+        if (codeKeywords.some(k => hints.includes(k))) return 'code';
+
         // 用户名/账号关键词
         const usernameKeywords = [
             'user', 'username', 'account', 'login', 'email', 'phone', 'mobile', 'tel',
@@ -1094,55 +1115,59 @@ class CredentialFiller extends BaseContentModule {
 
     /**
      * 查找页面上的用户名输入框
+     * 优先在真实可见的输入框中查找，避免命中整体隐藏的登录框；
+     * 仅当存在可见密码框（处于账号密码登录形态）时才回退匹配隐藏的用户名框（分步登录场景）
      */
     findUsernameInput(options = {}) {
         const includeHidden = !!options.includeHidden;
-        // 基础池：排除 type=hidden 与 display:none 的框（仍含 visibility:hidden / 离屏的“收起”框）
-        const base = Array.from(document.querySelectorAll(
-            'input[type="text"], input[type="email"], input[type="tel"], input:not([type])'
-        )).filter(i => i.type !== 'hidden' && window.getComputedStyle(i).display !== 'none');
-        const pool = includeHidden ? base : this.getVisibleInputs();
+        // 可见池：getVisibleInputs 已排除隐藏框，再剔掉密码框
+        const visiblePool = this.getVisibleInputs().filter(i => i.type !== 'password');
 
-        // 优先通过语义识别找用户名框
-        const byHint = pool.find(input => this.detectFieldType(input) === 'username');
-        if (byHint) return byHint;
+        // 优先通过语义识别找可见的用户名框
+        const byVisibleHint = visiblePool.find(input => this.detectFieldType(input) === 'username');
+        if (byVisibleHint) return byVisibleHint;
 
-        // 分步登录：第二步用户名框可能被 display:none 收起（值保留在 DOM），仍尝试用语义识别命中
-        if (includeHidden) {
+        const passwordInput = this.findPasswordInput();
+
+        // 分步登录：第二步用户名框可能被隐藏（值保留在 DOM）。
+        // 仅当存在可见密码框时才回退找隐藏用户名框，避免误填到整体隐藏的登录框
+        if (includeHidden && passwordInput) {
             const hiddenUser = Array.from(document.querySelectorAll(
                 'input[type="text"], input[type="email"], input[type="tel"], input:not([type])'
-            )).find(i => i.type !== 'hidden' && window.getComputedStyle(i).display === 'none'
+            )).find(i => i.type !== 'hidden' && !this.isFieldRendered(i)
                 && this.detectFieldType(i) === 'username');
             if (hiddenUser) return hiddenUser;
         }
 
-        // 兜底：找密码框前面最近的文本输入框
-        const passwordInput = this.findPasswordInput();
-        if (!passwordInput) return pool[0] || null;
+        // 兜底：找可见密码框前面最近的文本输入框
+        if (!passwordInput) return visiblePool[0] || null;
 
         let closest = null;
-        for (const input of pool) {
-            if (input.type === 'password') continue;
+        for (const input of visiblePool) {
             if (passwordInput.compareDocumentPosition(input) & Node.DOCUMENT_POSITION_PRECEDING) {
                 closest = input;
             }
         }
-        return closest;
+        return closest || visiblePool[0] || null;
     }
 
     /**
      * 查找页面上的密码输入框
+     * 只返回真实渲染可见的密码框：避免把凭证填进整体隐藏的登录框
+     * （多登录方式页面里隐藏的密码容器对用户不可见，填了也无效果）
      */
     findPasswordInput() {
-        // 优先找 type="password"
-        const pwdInput = document.querySelector('input[type="password"]');
-        if (pwdInput) return pwdInput;
+        // 优先找可见的 type="password"
+        const pwdInputs = Array.from(document.querySelectorAll('input[type="password"]'));
+        const visiblePwd = pwdInputs.find(f => this.isFieldRendered(f));
+        if (visiblePwd) return visiblePwd;
 
         // 兼容密码可见功能切换后的状态
-        const toggledInput = document.querySelector('input[data-password-toggle="true"]');
-        if (toggledInput) return toggledInput;
+        const toggledInputs = Array.from(document.querySelectorAll('input[data-password-toggle="true"]'));
+        const visibleToggled = toggledInputs.find(f => this.isFieldRendered(f));
+        if (visibleToggled) return visibleToggled;
 
-        // 兜底：通过语义识别
+        // 兜底：通过语义识别（getVisibleInputs 已只含可见框）
         const allInputs = this.getVisibleInputs();
         return allInputs.find(input => this.detectFieldType(input) === 'password') || null;
     }
@@ -1199,6 +1224,8 @@ class CredentialFiller extends BaseContentModule {
             if (input === fallbackUsernameInput && fieldType === 'other') {
                 fieldType = 'username';
             }
+            // 验证码/短信码是一次性的，存进凭证后下次填充会填入过期值，直接跳过采集
+            if (fieldType === 'code') return;
             const label = input.placeholder || input.name || input.id || type;
 
             if (fieldType === 'password') {
@@ -1268,15 +1295,18 @@ class CredentialFiller extends BaseContentModule {
             selector: f.selector
         }));
 
-        if (!usernameField && !passwordField) {
-            Toast.warning('未填写任何用户名或密码');
-            return;
-        }
-
         const username = usernameField ? usernameField.value.trim() : '';
         // 密码必须保留原始值；trim 会篡改合法的首尾空格密码。
         const password = passwordField ? passwordField.value : '';
-        if (!username || password.length === 0) {
+
+        // 用户名/手机号是凭证的身份标识，不可缺失
+        if (!username) {
+            Toast.warning('请先填写用户名或手机号再采集');
+            return;
+        }
+        // 短信验证码等无密码登录页没有密码框可采，允许仅采集用户名/手机号；
+        // 存在可见密码框的账号密码登录页仍要求两者都完整
+        if (this.hasPasswordField() && password.length === 0) {
             Toast.warning('用户名和密码必须都填写完整才能采集');
             return;
         }
