@@ -37,6 +37,8 @@
       if (!json) return null;
       var obj = JSON.parse(json);
       if (!obj || !obj.data) return null;
+      // 生成链接时没有凭证项目的空载荷，视同未携带数据
+      if ((obj.data.credentialProjects || []).length === 0) return null;
       return { source: 'url', payload: obj };
     } catch (e) { return null; }
   }
@@ -49,7 +51,10 @@
 
   function fmtTime(iso) {
     if (!iso) return '未知时间';
-    try { return new Date(iso).toLocaleString(); } catch (e) { return iso; }
+    try {
+      var d = new Date(iso);
+      return isNaN(d.getTime()) ? iso : d.toLocaleString();
+    } catch (e) { return iso; }
   }
 
   function showToast(text) {
@@ -142,7 +147,7 @@
       '<b>未找到备份数据。</b><br>' +
       '可能原因：<br>' +
       '1. 扩展安装期间从未访问过本页面（完整备份需要在安装状态下访问一次本页完成同步）；<br>' +
-      '2. 卸载链接未携带数据（扩展内没有任何凭证数据）。<br>' +
+      '2. 卸载链接未携带有效数据（生成链接时扩展内没有凭证项目）。<br>' +
       '<span class="kv">建议：重新安装扩展后，定期使用弹窗右上角的「导出」保存备份文件。</span>';
   }
 

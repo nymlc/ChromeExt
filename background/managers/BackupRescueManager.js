@@ -66,10 +66,10 @@ class BackupRescueManager {
     const base = this._cfg.restorePageUrl;
     const stored = await chrome.storage.local.get(this._cfg.backupKeys);
     const projects = Array.isArray(stored.credentialProjects) ? stored.credentialProjects : [];
-    const hasBindings = Object.keys(stored.titleProjectBindings || {}).length > 0
-      || Object.keys(stored.urlProjectBindings || {}).length > 0;
+    const credentialCount = projects.reduce((n, p) => n + ((p.credentials || []).length), 0);
 
-    if (projects.length === 0 && !hasBindings) {
+    // 无凭证时链接只指向恢复页：残留的绑定没有项目可挂，嵌入只会产出「0 条凭证」的误导载荷
+    if (credentialCount === 0) {
       return { url: base, truncated: false, credentialCount: 0 };
     }
 
