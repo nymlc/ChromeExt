@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "极客百宝箱",
-  "version": "1.0.74",
+  "version": "1.0.75",
   "description": "集成了多项实用工具的全能浏览器助手",
   "permissions": [
     "activeTab",
@@ -50,6 +50,8 @@
       ],
       "js": [
         "shared/storageState.js",
+        "shared/backupConfig.js",
+        "shared/restorePageSync.js",
         "shared/Toast.js",
         "shared/SideTooltip.js",
         "shared/timeFormat.js",

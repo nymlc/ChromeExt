@@ -603,7 +603,7 @@ class PopupManager {
     return {
       credential: {
         name: '凭证管理',
-        keys: ['credentialProjects', 'titleProjectBindings']
+        keys: ['credentialProjects', 'titleProjectBindings', 'urlProjectBindings']
       },
       password: {
         name: '密码显示',

@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>极客百宝箱 · 数据抢救</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    background: linear-gradient(160deg, #f5f7ff 0%, #eef1f8 100%);
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 48px 16px;
+    color: #2b2f36;
+  }
+  .card {
+    width: 100%;
+    max-width: 560px;
+    background: #fff;
+    border-radius: 16px;
+    box-shadow: 0 10px 40px rgba(30, 40, 90, 0.10);
+    padding: 28px;
+  }
+  h1 { font-size: 19px; display: flex; align-items: center; gap: 8px; }
+  h1 .logo { font-size: 22px; }
+  .sub { margin-top: 6px; font-size: 13px; color: #8a90a0; }
+
+  .status {
+    margin-top: 20px;
+    border-radius: 12px;
+    padding: 14px 16px;
+    font-size: 13px;
+    line-height: 1.7;
+  }
+  .status.ok { background: #f0f9f1; border: 1px solid #cdeccd; color: #1e6b2e; }
+  .status.warn { background: #fff8ec; border: 1px solid #f3e2bd; color: #8a5a10; }
+  .status.empty { background: #f6f7fb; border: 1px solid #e2e5ee; color: #5a6070; }
+  .status b { font-weight: 600; }
+  .status .kv { color: inherit; opacity: 0.85; }
+
+  .actions { margin-top: 16px; display: flex; gap: 10px; flex-wrap: wrap; }
+  .btn {
+    appearance: none;
+    border: none;
+    border-radius: 10px;
+    padding: 10px 18px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: filter 0.15s, transform 0.05s;
+  }
+  .btn:active { transform: scale(0.98); }
+  .btn-primary { background: #3b6ef5; color: #fff; }
+  .btn-primary:hover { filter: brightness(1.08); }
+  .btn-ghost { background: #f0f2f8; color: #3b4252; }
+  .btn-ghost:hover { filter: brightness(0.97); }
+
+  .steps {
+    margin-top: 22px;
+    border-top: 1px dashed #e4e7f0;
+    padding-top: 16px;
+    font-size: 13px;
+    color: #555c6c;
+    line-height: 2;
+  }
+  .steps .step-no {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #3b6ef5;
+    color: #fff;
+    font-size: 11px;
+    margin-right: 8px;
+  }
+
+  details { margin-top: 18px; }
+  summary { font-size: 12px; color: #8a90a0; cursor: pointer; user-select: none; }
+  pre {
+    margin-top: 10px;
+    background: #10131a;
+    color: #c9d4e8;
+    border-radius: 10px;
+    padding: 14px;
+    font-size: 11px;
+    line-height: 1.6;
+    max-height: 280px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .toast {
+    position: fixed;
+    left: 50%;
+    top: 24px;
+    transform: translateX(-50%);
+    background: #2b2f36;
+    color: #fff;
+    padding: 10px 18px;
+    border-radius: 8px;
+    font-size: 13px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+    opacity: 0;
+    transition: opacity 0.2s;
+    pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1><span class="logo">🧰</span>极客百宝箱 · 数据抢救</h1>
+    <p class="sub">扩展卸载后其本地数据会被浏览器清除，本页面帮你找回抢救出的备份。</p>
+
+    <div id="status" class="status empty">正在检查备份数据…</div>
+    <div id="actions" class="actions" style="display:none">
+      <button id="downloadBtn" class="btn btn-primary">下载备份文件（.json）</button>
+      <button id="copyBtn" class="btn btn-ghost">复制全部内容</button>
+    </div>
+
+    <div class="steps">
+      <div><span class="step-no">1</span>下载备份文件到本地</div>
+      <div><span class="step-no">2</span>重新安装「极客百宝箱」扩展</div>
+      <div><span class="step-no">3</span>点击扩展图标，右上角「导入」选择该文件即可完整恢复</div>
+    </div>
+
+    <details id="rawWrap" style="display:none">
+      <summary>查看原始数据</summary>
+      <pre id="raw"></pre>
+    </details>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="lz-string.min.js"></script>
+  <script src="restore.js"></script>
+</body>
+</html>

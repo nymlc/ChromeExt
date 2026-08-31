@@ -168,3 +168,16 @@ npm run build:keep   # 不递增版本号，仅重新打包
 
 - **IframePool / LRUCache 为休眠代码**：当前 `MasterGoNav.js` 中 `POOL_MODE = 'tab'` 写死，manifest 也只加载 `TabPool`。若切换到 `iframe` 模式，需手动把 `POOL_MODE` 改为 `'iframe'`，并在 manifest 中将 `TabPool.js` 换成 `LRUCache.js + IframePool.js`、把 `run_at` 改为 `document_start`。后续可改为由 storage 配置驱动，避免隐蔽切换成本。
 - **无自动化测试 / lint**：目前为纯手写 JS，CSS 多内联于 `cssText`，可维护性一般，建议后续补 `eslint` 与单元测试。
+
+## 卸载数据抢救
+
+Chrome 卸载扩展时会连同 `chrome.storage.local` 一起清掉，且卸载前没有任何钩子可以执行代码——唯一的出口是 `chrome.runtime.setUninstallURL`（卸载后自动打开的网址，限长 1023 字符）。本扩展用「双保险」保住凭证数据：
+
+1. **全量备份（首选）**：`shared/restorePageSync.js` 在扩展安装期间，把凭证数据实时同步到**抢救页所在域名的 localStorage**（content script 与页面共享 localStorage，卸载不影响它）。首次安装时 `BackupRescueManager` 会自动打开一次抢救页完成落盘，之后数据变化（防抖订阅 `chrome.storage.onChanged`）持续增量同步。
+2. **URL 兜底（降级）**：`BackupRescueManager` 每次数据变化后重建卸载链接：把数据打包成导出格式 → `lz-string` 压缩 → 拼进抢救页的 `#d=` 哈希。塞不下 1023 字符时按「去 customFields → 逐条丢最旧凭证 → 丢绑定」逐级截断，并在页面标注 `⚠️ 兜底备份`。
+
+卸载后浏览器打开抢救页（`restore/index.html`），优先读 localStorage 全量备份，读不到再解析链接里的兜底数据，提供**下载 .json / 复制**；拿到的文件即标准导出格式，重装扩展后在弹窗「导入」即可恢复。
+
+- 涉及文件：`shared/backupConfig.js`（配置，含抢救页地址）、`background/managers/BackupRescueManager.js`、`shared/restorePageSync.js`、`restore/`、`lib/lz-string.min.js`。
+- **部署**：把 `restore/` 目录发布为静态页（如 GitHub Pages），并把地址写入 `backupConfig.js` 的 `restorePageUrl`；地址的 origin 必须与同步目标一致，否则 localStorage 全量备份不会生效。
+- 局限：全量备份依赖用户在扩展安装期间访问过抢救页（首装自动打开一次）；兜底链接受 1023 字符限制，数据量大时只保留部分凭证。

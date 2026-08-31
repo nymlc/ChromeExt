@@ -7,13 +7,17 @@
  */
 
 importScripts(
+  'lib/lz-string.min.js',
+  'shared/backupConfig.js',
   'background/managers/PasswordManager.js',
   'background/managers/TabPoolManager.js',
+  'background/managers/BackupRescueManager.js',
 );
 
 const managers = [
   new PasswordManager(),
   new TabPoolManager(),
+  new BackupRescueManager(),
 ];
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {

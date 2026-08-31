@@ -44,6 +44,9 @@ const EXCLUDES = [
   'tmp',
   'temp',
   'build.sh',
+  'restore',
+  '.workbuddy',
+  '.claude',
 ];
 
 // ---- 读取 manifest ----
