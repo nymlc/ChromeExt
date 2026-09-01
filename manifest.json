@@ -50,6 +50,7 @@
       ],
       "js": [
         "shared/storageState.js",
+        "shared/dataKeys.js",
         "shared/backupConfig.js",
         "shared/restorePageSync.js",
         "shared/Toast.js",

@@ -173,11 +173,11 @@ npm run build:keep   # 不递增版本号，仅重新打包
 
 Chrome 卸载扩展时会连同 `chrome.storage.local` 一起清掉，且卸载前没有任何钩子可以执行代码——唯一的出口是 `chrome.runtime.setUninstallURL`（卸载后自动打开的网址，限长 1023 字符）。本扩展用「双保险」保住凭证数据：
 
-1. **全量备份（首选）**：扩展安装期间，每次凭证数据变化（防抖 1.5s），`BackupRescueManager` 会**后台静默打开恢复页**（不激活、不抢焦点），由注入该页的 `shared/restorePageSync.js` 把全量数据写入**抢救页所在域名的 localStorage**（网页存储不属于扩展，卸载不影响），写入完成立即关闭标签。无需手动访问。
+1. **全量备份（首选）**：扩展安装期间，每次凭证数据变化（防抖 1.5s），`BackupRescueManager` 会往一个已打开的普通网页里注入**不可见的 1px iframe** 指向恢复页（最多尝试 3 个候选标签，个别站点 CSP 会拦第三方 iframe），由注入 iframe 的 `shared/restorePageSync.js` 把全量数据写入**抢救页所在域名的 localStorage**（网页存储不属于扩展，卸载不影响），15 秒后 iframe 自行移除——无标签、无闪烁、不抢焦点。一个可注入的网页都没有时才退化为短暂后台开标签。无需手动访问。
 2. **URL 兜底（降级）**：`BackupRescueManager` 每次数据变化后重建卸载链接：把数据打包成导出格式 → `lz-string` 压缩 → 拼进抢救页的 `#d=` 哈希。塞不下 1023 字符时按「去 customFields → 丢绑定 → 逐条丢最旧凭证」逐级截断，并在页面标注 `⚠️ 兜底备份`。绑定先于凭证丢弃——绑定只是自动填充的辅助匹配，若放到最后丢，超容量的绑定会把全部凭证连坐挤掉。没有任何凭证时链接只指向抢救页，不嵌入空载荷。
 
 卸载后浏览器打开抢救页（`restore/index.html`），优先读 localStorage 全量备份，读不到再解析链接里的兜底数据，提供**下载 .json / 复制**；拿到的文件即标准导出格式，重装扩展后在弹窗「导入」即可恢复。
 
 - 涉及文件：`shared/backupConfig.js`（配置，含抢救页地址）、`background/managers/BackupRescueManager.js`、`shared/restorePageSync.js`、`restore/`、`lib/lz-string.min.js`。
 - **部署**：把 `restore/` 目录发布为静态页（如 GitHub Pages），并把地址写入 `backupConfig.js` 的 `restorePageUrl`；地址的 origin 必须与同步目标一致，否则 localStorage 全量备份不会生效。
-- 局限：全量备份依赖用户在扩展安装期间手动访问过一次抢救页；兜底链接受 1023 字符限制，数据量大时只保留部分凭证。
+- 局限：全量备份依赖同步触发时至少有一个已打开的普通网页（供注入隐藏 iframe），且个别强 CSP 站点会拦截 iframe（会换候选标签重试）；兜底链接受 1023 字符限制，数据量大时只保留部分凭证。

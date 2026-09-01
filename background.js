@@ -8,6 +8,7 @@
 
 importScripts(
   'lib/lz-string.min.js',
+  'shared/dataKeys.js',
   'shared/backupConfig.js',
   'background/managers/PasswordManager.js',
   'background/managers/TabPoolManager.js',

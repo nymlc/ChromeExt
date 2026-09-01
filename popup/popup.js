@@ -598,37 +598,14 @@ class PopupManager {
 
   /**
    * 模块数据的 storage key 映射
+   * 单一来源：shared/dataKeys.js（导出 / 导入 / 卸载抢救共用同一份口径）
    */
   getModuleDataKeys() {
+    if (typeof GEEK_DATA_KEYS !== 'undefined' && GEEK_DATA_KEYS) return GEEK_DATA_KEYS;
+    // 兜底：dataKeys.js 未加载时至少保持旧口径可用
     return {
-      credential: {
-        name: '凭证管理',
-        keys: ['credentialProjects', 'titleProjectBindings', 'urlProjectBindings']
-      },
-      password: {
-        name: '密码显示',
-        keys: ['passwordModuleEnabled', 'disabledPasswordSites']
-      },
-      masterGoNav: {
-        name: 'MasterGo 导航',
-        keys: ['mastergoNavNodes', 'mastergoNavCollapsed', 'masterGoNavModuleEnabled', 'mastergoNavSide']
-      },
-      timestampFormatter: {
-        name: '时间戳格式化',
-        keys: ['timestampFormatterModuleEnabled', 'disabledTimestampFormatterSites', 'timestampFormatterShowUTC', 'timestampFormatterShowRelative']
-      },
-      imagePreview: {
-        name: '图片预览',
-        keys: [
-          'imagePreviewModuleEnabled',
-          'disabledImagePreviewSites',
-          'imagePreviewMaxSize'
-        ]
-      },
-      global: {
-        name: '全局设置',
-        keys: ['globalDisabledSites', 'moduleOrder', 'hiddenModules']
-      }
+      credential: { name: '凭证管理', keys: ['credentialProjects', 'titleProjectBindings', 'urlProjectBindings'] },
+      global: { name: '全局设置', keys: ['globalDisabledSites', 'moduleOrder', 'hiddenModules'] },
     };
   }
 
