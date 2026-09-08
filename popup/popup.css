@@ -831,3 +831,73 @@ input[type="text"].cmf-tag-create-input:focus {
 }
 .cmf-tag-recommendations-list::-webkit-scrollbar { width: 3px; }
 .cmf-tag-recommendations-list::-webkit-scrollbar-thumb { background: #c4d6e9; border-radius: 4px; }
+
+/* ── JSON 格式化模块 ── */
+.jf-input {
+  width: 100%;
+  resize: vertical;
+  min-height: 72px;
+  max-height: 220px;
+  padding: 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text-main);
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  box-sizing: border-box;
+}
+.jf-input:focus { outline: none; border-color: var(--accent-color); }
+.jf-input::placeholder { color: #b0b0b5; }
+
+.jf-indent {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.jf-indent select { font-size: 12px; padding: 5px 26px 5px 10px !important; }
+
+.jf-toolbar { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.jf-output-wrap { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+.jf-output-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.jf-status {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jf-status.ok { color: #248a3d; }
+.jf-status.error { color: var(--danger-color); white-space: normal; line-height: 1.4; }
+
+.jf-output {
+  height: 148px;
+  overflow: auto;
+  margin: 0;
+  padding: 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text-main);
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+  word-break: normal;
+}
+.jf-output::-webkit-scrollbar { width: 4px; height: 4px; }
+.jf-output::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.2); border-radius: 4px; }
+
+.jf-placeholder { color: var(--text-secondary); }
+.jf-key { color: #005cc5; }
+.jf-str { color: #c0392b; }
+.jf-num { color: #d35400; }
+.jf-bool { color: #8250df; }
+.jf-null { color: var(--text-secondary); }
+.jf-punc { color: #55555a; }
