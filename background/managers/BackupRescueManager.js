@@ -8,15 +8,14 @@
  *   因此在凭证数据每次变化后，把数据压缩并内嵌进该 URL 的 hash 段，
  *   恢复页（restore/index.html）打开后从 hash 解出并提供下载。
  *   URL 上限 1023 字符，超量时按策略裁剪（去自定义字段 → 丢绑定 → 逐条丢最旧凭证）。
- *   全量备份走 content 侧的 localStorage 同步，见 shared/restorePageSync.js。
+ *   全量备份走 content 侧的 localStorage 同步，见 shared/restorePageSync.js：
+ *   后台用 chrome.tabs.sendMessage 通知已注入的 content 脚本代为注入隐藏 iframe（无需 host 权限）。
  */
 
 class BackupRescueManager {
   constructor() {
     this._timer = null;
     this._syncing = false;
-    this._syncTabId = null;
-    this._syncFallbackTimer = null;
     this._cfg = (typeof GEEK_BACKUP_CONFIG !== 'undefined') ? GEEK_BACKUP_CONFIG : null;
 
     if (!this._cfg) return;
@@ -25,13 +24,6 @@ class BackupRescueManager {
       if (area !== 'local') return;
       if (!this._cfg.backupKeys.some(k => changes[k])) return;
       this._scheduleUpdate();
-    });
-
-    // content 脚本在恢复页完成 localStorage 写入后回报，立即关掉用于同步的后台标签
-    chrome.runtime.onMessage.addListener((msg, sender) => {
-      if (msg && msg.type === 'geek-rescue-synced' && sender.tab && sender.tab.id === this._syncTabId) {
-        this._closeSyncTab();
-      }
     });
 
     chrome.runtime.onInstalled.addListener(() => {
@@ -54,20 +46,14 @@ class BackupRescueManager {
     }, 1500);
   }
 
-  _closeSyncTab() {
-    if (this._syncFallbackTimer) { clearTimeout(this._syncFallbackTimer); this._syncFallbackTimer = null; }
-    const id = this._syncTabId;
-    this._syncTabId = null;
-    this._syncing = false;
-    if (id != null) chrome.tabs.remove(id).catch(() => {});
-  }
-
   /**
    * 把全量备份写入恢复页所在来源的 localStorage（网页存储，卸载不受影响）。
-   * 首选：往已打开的普通网页里注入一个不可见的 1px iframe 指向恢复页，
+   * 方式：往已打开的普通网页里注入一个不可见的 1px iframe 指向恢复页，
    * 由注入 iframe 的 content 脚本（restorePageSync.js）完成写入——无标签、无闪烁、不抢焦点。
    * 个别站点 CSP 会阻止第三方 iframe，故最多尝试 3 个候选标签（写入幂等，重复无害）。
-   * 兜底：一个可注入的网页都没有时，才退化为后台开标签。
+   * 关键：绝不为了同步而新开标签页——否则在"只有扩展弹窗 / chrome:// 页"时
+   * 会凭空弹出一个恢复页标签（用户感知就是"莫名其妙跳出页面"）。
+   * 当没有可注入的普通网页时直接跳过，下次开任意网页会自动补齐同步。
    */
   async syncFullBackup() {
     if (!this._cfg || this._syncing) return;
@@ -88,58 +74,42 @@ class BackupRescueManager {
       const tabs = await chrome.tabs.query({});
       if (restorePrefix && tabs.some(t => (t.url || '').startsWith(restorePrefix))) return;
 
-      if (await this._syncViaHiddenIframe(tabs)) return;
-      await this._syncViaBackgroundTab();
+      // 优先注入 iframe；没有任何可注入的普通网页时静默跳过（不弹标签）。
+      await this._syncViaMessage(tabs);
     } catch (e) {
       /* 静默：同步失败不影响主流程 */
     } finally {
-      // iframe 方式自行定时清理；后台标签兜底路径在关标签时才释放（见 _closeSyncTab）
-      if (this._syncTabId == null) this._syncing = false;
+      this._syncing = false;
     }
   }
 
-  async _syncViaHiddenIframe(tabs) {
+  /**
+   * 通过 tabs.sendMessage 让已注入 content 脚本的普通网页代为注入一个隐藏 iframe（指向恢复页）。
+   * 关键：触发靠 tabs.sendMessage（仅需 tabs 权限，content 脚本已随 manifest 注入到 <all_urls>），
+   * 而非 chrome.scripting.executeScript —— 后者注入后台标签页需要目标页 host 权限，
+   * 本扩展未申请 <all_urls>，注入会始终失败并回退到"开后台标签"，于是一闪而过。
+   * 改用 sendMessage 后：无新标签、不抢焦点、无闪烁。
+   */
+  async _syncViaMessage(tabs) {
     const candidates = tabs
       .filter(t => /^https?:/.test(t.url || ''))
       .sort((a, b) => Number(!!b.active) - Number(!!a.active))
       .slice(0, 3);
     if (candidates.length === 0) return false;
 
-    let injected = false;
+    let messaged = false;
     for (const t of candidates) {
       try {
-        await chrome.scripting.executeScript({
-          target: { tabId: t.id },
-          func: (url) => {
-            try {
-              if (window.top !== window) return; // 已在 iframe 中则不再嵌套
-              const f = document.createElement('iframe');
-              f.src = url;
-              f.style.cssText = 'position:fixed;left:-9999px;top:0;width:1px;height:1px;border:0;opacity:0;pointer-events:none;';
-              f.setAttribute('aria-hidden', 'true');
-              f.tabIndex = -1;
-              (document.body || document.documentElement).appendChild(f);
-              // 给足加载与写入时间后自行移除，无需外部协调
-              setTimeout(() => { try { f.remove(); } catch (_) {} }, 15000);
-            } catch (_) { /* 页面环境异常时忽略 */ }
-          },
-          args: [this._cfg.restorePageUrl],
+        await chrome.tabs.sendMessage(t.id, {
+          type: 'geek-rescue-inject-iframe',
+          url: this._cfg.restorePageUrl,
         });
-        injected = true;
-      } catch (e) { /* 该标签不可注入（内部页等），尝试下一个 */ }
+        messaged = true; // 至少成功通知一个页面去注入 iframe
+      } catch (e) {
+        /* 该页没有我们的 content 脚本（内部页 / 未匹配站点），尝试下一个 */
+      }
     }
-    return injected;
-  }
-
-  async _syncViaBackgroundTab() {
-    try {
-      const tab = await chrome.tabs.create({ url: this._cfg.restorePageUrl, active: false });
-      this._syncTabId = tab.id;
-      // 兜底：即便 content 脚本没回报（页面加载失败等），也不能让标签残留
-      this._syncFallbackTimer = setTimeout(() => this._closeSyncTab(), 6000);
-    } catch (e) {
-      this._syncTabId = null;
-    }
+    return messaged;
   }
 
   /**

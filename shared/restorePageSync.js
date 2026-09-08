@@ -52,4 +52,24 @@
       if (area === 'local' && cfg.backupKeys.some(k => changes[k])) sync();
     });
   }
+
+  // 后台指令：在当前页面注入一个指向恢复页的隐藏 iframe，由 iframe 内的 content 脚本完成
+  // localStorage 写入。触发用 tabs.sendMessage（仅需 tabs 权限，脚本已随 manifest 注入），
+  // 不用 chrome.scripting.executeScript —— 后者缺 host 权限必然失败，会逼出"开后台标签"的一闪。
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (!msg || msg.type !== 'geek-rescue-inject-iframe') return;
+    try {
+      if (window.top !== window) return; // 只在顶层页面注入，避免 iframe 内再嵌 iframe
+      const url = msg.url;
+      if (typeof url !== 'string' || !/^https?:\/\//.test(url)) return;
+      const f = document.createElement('iframe');
+      f.src = url;
+      f.style.cssText = 'position:fixed;left:-9999px;top:0;width:1px;height:1px;border:0;opacity:0;pointer-events:none;';
+      f.setAttribute('aria-hidden', 'true');
+      f.tabIndex = -1;
+      (document.body || document.documentElement).appendChild(f);
+      // 加载与写入完成后自行移除，无需外部协调
+      setTimeout(() => { try { f.remove(); } catch (_) {} }, 15000);
+    } catch (_) { /* 忽略 */ }
+  });
 })();
