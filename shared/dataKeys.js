@@ -67,6 +67,15 @@
         'disabledQrCodeToolSites',
       ],
     },
+    jsonFormatter: {
+      name: 'JSON 格式化',
+      keys: [
+        'jsonFormatterModuleEnabled',
+        'disabledJsonFormatterSites',
+        'jsonFormatterIndent',
+        'jsonFormatterSortKeys',
+      ],
+    },
     global: {
       name: '全局设置（模块隐藏/顺序）',
       keys: [

@@ -17,6 +17,8 @@ class PopupManager {
       credentialManager: null,
       masterGoManager: null,
       imagePreview: null,
+      qrCodeTool: null,
+      jsonFormatter: null,
     };
     this.activeSubpageModule = null; // 'credential' | 'masterGoNav' | 'password' | 'timestampFormatter' | 'imagePreview' | 'qrCodeTool' | 'hiddenModules'
 
@@ -28,6 +30,7 @@ class PopupManager {
       timestampFormatter: 'timestampFormatterModuleContent',
       imagePreview: 'imagePreviewModuleContent',
       qrCodeTool: 'qrCodeToolModuleContent',
+      jsonFormatter: 'jsonFormatterModuleContent',
       hiddenModules: 'hiddenModulesModuleContent',
     };
 
@@ -78,6 +81,9 @@ class PopupManager {
     this.modules.qrCodeTool = new QrCodeTool();
     await this.modules.qrCodeTool.init();
 
+    this.modules.jsonFormatter = new JsonFormatter();
+    await this.modules.jsonFormatter.init();
+
     // 恢复模块顺序并初始化拖拽
     await this.restoreModuleOrder();
     this.initDragSort();
@@ -123,6 +129,7 @@ class PopupManager {
     bindEntry(document.getElementById('timestampFormatterModuleEntry'), 'timestampFormatter', '时间戳格式化');
     bindEntry(document.getElementById('imagePreviewModuleEntry'), 'imagePreview', '图片预览');
     bindEntry(document.getElementById('qrCodeToolModuleEntry'), 'qrCodeTool', '二维码工具');
+    bindEntry(document.getElementById('jsonFormatterModuleEntry'), 'jsonFormatter', 'JSON 格式化');
 
     // 顶部「已隐藏 N 个模块」入口
     const hiddenEntry = document.getElementById('hiddenModulesEntry');

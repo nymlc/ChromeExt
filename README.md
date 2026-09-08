@@ -1,6 +1,6 @@
 # 极客百宝箱 (Geek Toolbox) Chrome 扩展
 
-一个 **Manifest V3** 的模块化浏览器助手，把「密码显示、凭证填充、MasterGo 导航、时间戳格式化」四套工具整合在一起。代码结构清晰、扩展性强，新增功能只需继承基类并在配置中注册。
+一个 **Manifest V3** 的模块化浏览器助手，把「密码显示、凭证填充、MasterGo 导航、时间戳格式化、图片预览、二维码工具、JSON 格式化」等工具整合在一起。代码结构清晰、扩展性强，新增功能只需继承基类并在配置中注册。
 
 > 作者：林晨 · 当前版本：v1.0.9
 
@@ -28,6 +28,7 @@ ChromeExt/
 │       ├── PasswordToggle.js       # 密码模块开关 UI
 │       ├── CredentialManager.js    # 凭证管理 UI（增删改 / 采集）
 │       └── MasterGoManager.js      # MasterGo 导航配置 UI
+│       （另有 TimestampFormatter / ImagePreview / QrCodeTool / JsonFormatter 等模块脚本）
 ├── shared/                           # 多端共用的工具类
 │   ├── storageState.js             # 全局存储缓存单例（集中监听 + 订阅）
 │   ├── Toast.js                    # 轻提示
@@ -42,7 +43,7 @@ ChromeExt/
 └── package.json                     # 版本号由 build 脚本与 manifest 同步
 ```
 
-## 三大功能模块
+## 功能模块
 
 ### 1. 密码显示（PasswordHelper / PasswordToggle）
 - 为所有 `<input type="password">` 添加眼睛图标，点击或双击切换明文/密文。
@@ -89,6 +90,13 @@ ChromeExt/
   - 在网页任意位置右键 →「解码二维码」：若右键的是 `<img>` 二维码，直接抓取该图解码；若右键的是**背景图 / Canvas 渲染的二维码**（登录码、支付码常见），则自动整页扫描所有图片与 canvas 找出二维码并解码。图片均由后台 Service Worker 抓取（扩展具备 host 权限，绕过页面 CORS 限制），因此跨域图片也能正常解码。
 - 第三方库：`qrcode`（生成）、`jsQR`（解码），均以 UMD 单文件形式置于 `lib/` 由打包脚本收录。
 - 受三层开关控制：模块总开关 `qrCodeToolModuleEnabled`、网站级禁用 `disabledQrCodeToolSites`。
+
+### 7. JSON 格式化（JsonFormatter）
+- **Popup 工具面板**（纯面板工具，不注入网页）：输入或粘贴 JSON 即可自动格式化，输入过程实时校验。
+- **核心能力**：格式化（缩进可选 2 空格 / 4 空格 / Tab）、压缩（去空白）、转义 / 去转义（含宽松反斜杠还原与 `\uXXXX`）、按键排序（递归、数字感知排序）、示例、清空、复制结果、下载 `formatted.json`。
+- **语法高亮**：自研极简 tokenizer，先 HTML 转义再套色（key / string / number / boolean / null / 标点），不引入第三方库。
+- **错误定位**：解析失败时展示行列位置并自动把光标跳到出错字符；统计行显示行数 / 字符数 / 体积。
+- 受模块开关 `jsonFormatterModuleEnabled` 控制；缩进与按键排序偏好持久化到 `jsonFormatterIndent` / `jsonFormatterSortKeys`。
 
 ## 三层控制系统
 
@@ -144,6 +152,10 @@ popup (管理面板)
 | 图片地址预览模块启用 | `imagePreviewModuleEnabled` | `Boolean` |
 | 图片地址预览网站禁用 | `disabledImagePreviewSites` | `Array<string>` |
 | 图片最大预览尺寸 | `imagePreviewMaxSize` | `Number`（px） |
+| JSON 格式化模块启用 | `jsonFormatterModuleEnabled` | `Boolean` |
+| JSON 格式化网站禁用 | `disabledJsonFormatterSites` | `Array<string>` |
+| JSON 缩进偏好 | `jsonFormatterIndent` | `2 \| 4 \| 'tab'` |
+| JSON 按键排序 | `jsonFormatterSortKeys` | `Boolean` |
 | Popup 模块顺序 | `moduleOrder` | `Array<string>` |
 
 > 凭证（用户名/密码）以**明文**存于 `chrome.storage.local`，依赖 Chrome 存储沙箱保护。对高安全场景建议后续增加加密层（本版本未做）。
