@@ -1032,8 +1032,14 @@ class CredentialFiller extends BaseContentModule {
      * 填充凭证到页面
      */
     fillCredential(credential) {
-        const passwordInput = this.findPasswordInput();
-        const usernameInput = this.findUsernameInput({ includeHidden: true });
+        // 浮层由某个输入框触发（activeInput）。多表单页面（如登录页叠加"修改密码"弹窗）
+        // findPasswordInput 按 DOM 顺序取第一个可见密码框，可能命中背景登录表单的密码框，
+        // 导致填了但弹窗里看不到。因此触发框本身是密码框时，优先填它。
+        const anchorIsPwd = !!this.activeInput
+            && (this.activeInput.type === 'password' || this.activeInput.getAttribute('data-password-toggle') === 'true');
+        const passwordInput = anchorIsPwd ? this.activeInput : this.findPasswordInput();
+        // 触发框是密码框时跳过用户名填充，避免把账号写进背景登录表单
+        const usernameInput = anchorIsPwd ? null : this.findUsernameInput({ includeHidden: true });
 
         // 填充用户名
         if (usernameInput && credential.username) {
