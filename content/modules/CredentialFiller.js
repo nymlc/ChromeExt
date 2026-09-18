@@ -1032,14 +1032,14 @@ class CredentialFiller extends BaseContentModule {
      * 填充凭证到页面
      */
     fillCredential(credential) {
-        // 浮层由某个输入框触发（activeInput）。多表单页面（如登录页叠加"修改密码"弹窗）
-        // findPasswordInput 按 DOM 顺序取第一个可见密码框，可能命中背景登录表单的密码框，
-        // 导致填了但弹窗里看不到。因此触发框本身是密码框时，优先填它。
         const anchorIsPwd = !!this.activeInput
             && (this.activeInput.type === 'password' || this.activeInput.getAttribute('data-password-toggle') === 'true');
         const passwordInput = anchorIsPwd ? this.activeInput : this.findPasswordInput();
-        // 触发框是密码框时跳过用户名填充，避免把账号写进背景登录表单
-        const usernameInput = anchorIsPwd ? null : this.findUsernameInput({ includeHidden: true });
+        // 密码框触发时限制账号的查找范围，避免改动背景登录表单。
+        const usernameInput = this.findUsernameInput({
+            includeHidden: true,
+            passwordInput: anchorIsPwd ? passwordInput : null,
+        });
 
         // 填充用户名
         if (usernameInput && credential.username) {
@@ -1126,26 +1126,45 @@ class CredentialFiller extends BaseContentModule {
      */
     findUsernameInput(options = {}) {
         const includeHidden = !!options.includeHidden;
-        // 可见池：getVisibleInputs 已排除隐藏框，再剔掉密码框
-        const visiblePool = this.getVisibleInputs().filter(i => i.type !== 'password');
+        const passwordInput = options.passwordInput || this.findPasswordInput();
+        let visiblePool = this.getVisibleInputs().filter(input => {
+            const type = this.detectFieldType(input);
+            return type === 'username' || type === 'other';
+        });
+        let hiddenPool = includeHidden && passwordInput ? Array.from(document.querySelectorAll(
+            'input[type="text"], input[type="email"], input[type="tel"], input:not([type])'
+        )).filter(input => !this.isFieldRendered(input) && this.detectFieldType(input) === 'username') : [];
 
-        // 优先通过语义识别找可见的用户名框
-        const byVisibleHint = visiblePool.find(input => this.detectFieldType(input) === 'username');
-        if (byVisibleHint) return byVisibleHint;
+        if (options.passwordInput) {
+            const boundarySelector = 'form, [role="form"], dialog, [role="dialog"], [role="alertdialog"]';
+            const boundary = passwordInput.closest(boundarySelector) || passwordInput.form;
+            const sameBoundary = input => (input.closest(boundarySelector) || input.form) === boundary;
+            visiblePool = visiblePool.filter(sameBoundary);
+            hiddenPool = hiddenPool.filter(sameBoundary);
 
-        const passwordInput = this.findPasswordInput();
-
-        // 分步登录：第二步用户名框可能被隐藏（值保留在 DOM）。
-        // 仅当存在可见密码框时才回退找隐藏用户名框，避免误填到整体隐藏的登录框
-        if (includeHidden && passwordInput) {
-            const hiddenUser = Array.from(document.querySelectorAll(
-                'input[type="text"], input[type="email"], input[type="tel"], input:not([type])'
-            )).find(i => i.type !== 'hidden' && !this.isFieldRendered(i)
-                && this.detectFieldType(i) === 'username');
-            if (hiddenUser) return hiddenUser;
+            let scope = boundary || passwordInput.parentElement;
+            if (!boundary) {
+                // 无 form 的页面只向上找到最近的账号容器，不跨越其他可见密码表单。
+                const candidates = [...visiblePool, ...hiddenPool];
+                while (scope.parentElement) {
+                    const otherPassword = Array.from(scope.querySelectorAll('input')).some(input =>
+                        input !== passwordInput && this.isFieldRendered(input)
+                        && this.detectFieldType(input) === 'password');
+                    if (otherPassword) return null;
+                    if (candidates.some(input => scope.contains(input))) break;
+                    scope = scope.parentElement;
+                }
+            }
+            const inScope = input => scope.contains(input)
+                || (passwordInput.form === scope && input.form === scope);
+            visiblePool = visiblePool.filter(inScope);
+            hiddenPool = hiddenPool.filter(inScope);
         }
 
-        // 兜底：找可见密码框前面最近的文本输入框
+        const byVisibleHint = visiblePool.find(input => this.detectFieldType(input) === 'username');
+        if (byVisibleHint) return byVisibleHint;
+        if (hiddenPool.length) return hiddenPool[0];
+
         if (!passwordInput) return visiblePool[0] || null;
 
         let closest = null;
