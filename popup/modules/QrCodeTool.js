@@ -10,12 +10,31 @@ class QrCodeTool extends BaseModule {
     super('qrCodeTool'); // 模块名需与 content 侧一致
     this._genTimer = null;
     this._lastGenText = '';
+    this._libraries = new Map();
   }
 
-  async init() {
-    await this.initModuleStatus();
+  async init(tab) {
+    await this.initModuleStatus(tab);
     this.bindEvents();
     this.updateUI();
+  }
+
+  _loadLibrary(name) {
+    if (!this._libraries.has(name)) {
+      const script = document.createElement('script');
+      script.src = `../lib/${name}`;
+      const loading = new Promise((resolve, reject) => {
+        script.onload = resolve;
+        script.onerror = () => {
+          this._libraries.delete(name);
+          script.remove();
+          reject(new Error('二维码组件加载失败，请重试'));
+        };
+      });
+      this._libraries.set(name, loading);
+      document.head.appendChild(script);
+    }
+    return this._libraries.get(name);
   }
 
   bindEvents() {
@@ -59,11 +78,14 @@ class QrCodeTool extends BaseModule {
       return;
     }
     try {
+      await this._loadLibrary('qrcode.min.js');
+      if (document.getElementById('qrcodeGenInput')?.value !== text) return;
       await QRCode.toCanvas(canvas, text.trim(), { width: 220, margin: 1, errorCorrectionLevel: 'M' });
       canvas.style.display = 'block';
       this._lastGenText = text.trim();
       if (status) status.style.display = 'none';
     } catch (e) {
+      if (document.getElementById('qrcodeGenInput')?.value !== text) return;
       canvas.style.display = 'none';
       if (status) {
         status.textContent = '生成失败：' + (e && e.message ? e.message : e);
@@ -125,6 +147,7 @@ class QrCodeTool extends BaseModule {
     const status = document.getElementById('qrcodeDecodeStatus');
     const result = document.getElementById('qrcodeDecodeResult');
     try {
+      await this._loadLibrary('jsqr.min.js');
       const img = new Image();
       await new Promise((resolve, reject) => {
         img.onload = resolve;

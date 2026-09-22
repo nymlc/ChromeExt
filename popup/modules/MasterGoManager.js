@@ -10,14 +10,15 @@ class MasterGoManager extends BaseModule {
     super('masterGoNav');
     this.nodes = [];         // 根节点数组（一级 = 项目）
     this.path = [];          // 面包屑路径
+    this.isOpen = false;
+    this.needsRender = false;
     this.editingNode = null; // 正在编辑的节点，null 为新建
     this._editType = 'module'; // 'module' | 'page'
     this.view = 'tree';      // 'tree' | 'edit'
   }
 
-  async init() {
-    await this.initModuleStatus();
-    await this._load();
+  async init(tab) {
+    await Promise.all([this.initModuleStatus(tab), this._load()]);
     this._migrate();
     this.path = [{ id: '__root__', name: '根目录', children: this.nodes }];
     this.bindModuleSwitch();
@@ -131,7 +132,18 @@ class MasterGoManager extends BaseModule {
   }
 
   // ─── 渲染入口 ──────────────────────────────────────────────────────────────
+  onOpen() {
+    this.isOpen = true;
+    if (this.needsRender) this.render();
+  }
+
+  onClose() {
+    this.isOpen = false;
+  }
+
   render() {
+    this.needsRender = !this.isOpen;
+    if (this.needsRender) return;
     const c = document.getElementById('masterGoNavModuleContent');
     if (!c) return;
     c.innerHTML = '';

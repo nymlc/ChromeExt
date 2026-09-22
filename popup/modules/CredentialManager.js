@@ -9,6 +9,8 @@ class CredentialManager extends BaseModule {
     constructor() {
         super('credential');
         this.projects = [];
+        this.isOpen = false;
+        this.needsRender = false;
         this.currentView = 'list';       // list | detail | editCred
         this.currentProject = null;
         this.editingCredential = null;
@@ -19,36 +21,22 @@ class CredentialManager extends BaseModule {
         this.suppressNativeAutofill = true; // 默认抑制页面登录框聚焦时的 Chrome 原生密码建议
     }
 
-    async init() {
-        await this.initModuleStatus();
-        await this.loadProjects();
-        await this.getPageTitle();
+    async init(tab) {
+        const [settings] = await Promise.all([
+            chrome.storage.local.get(['urlProjectBindings', 'credentialViewMode', 'suppressNativeAutofill', 'titleProjectBindings']),
+            this.initModuleStatus(tab),
+            this.loadProjects(),
+        ]);
+        this.pageTitle = tab?.title || '';
+        this.currentHost = this.currentHostname;
+        this.urlBindings = settings.urlProjectBindings || {};
+        if (settings.credentialViewMode) this.credentialViewMode = settings.credentialViewMode;
+        this.suppressNativeAutofill = settings.suppressNativeAutofill !== false;
 
-        // 预读域名绑定信息，供详情页显示按钮状态
-        const ub = await chrome.storage.local.get(['urlProjectBindings']);
-        this.urlBindings = ub.urlProjectBindings || {};
-        try {
-            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-            this.currentHost = tab?.url ? new URL(tab.url).hostname : '';
-        } catch (e) {
-            this.currentHost = '';
-        }
-
-        // 读取视图偏好
-        const prefResult = await chrome.storage.local.get(['credentialViewMode']);
-        if (prefResult.credentialViewMode) {
-            this.credentialViewMode = prefResult.credentialViewMode;
-        }
-
-        // 读取「抑制原生密码建议」偏好（默认开启；false 才关闭）
-        const suppressResult = await chrome.storage.local.get(['suppressNativeAutofill']);
-        this.suppressNativeAutofill = suppressResult.suppressNativeAutofill !== false;
-
-        // 绑定模块开关事件
         this.bindModuleSwitch();
 
-        // 优先使用手动绑定的项目，其次自动匹配
-        const bound = await this.getBoundProject();
+        const projectId = settings.titleProjectBindings?.[this.pageTitle];
+        const bound = this.projects.find(project => project.id === projectId);
         const matched = bound || this.findProjectByTitle(this.pageTitle);
         if (matched) {
             this.currentProject = matched;
@@ -122,15 +110,6 @@ class CredentialManager extends BaseModule {
         } catch (e) { /* 忽略 */ }
     }
 
-    async getPageTitle() {
-        try {
-            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-            this.pageTitle = tab?.title || '';
-        } catch (e) {
-            this.pageTitle = '';
-        }
-    }
-
     getModuleName() {
         return '凭证管理';
     }
@@ -153,7 +132,18 @@ class CredentialManager extends BaseModule {
 
     // ==================== 渲染 ====================
 
+    onOpen() {
+        this.isOpen = true;
+        if (this.needsRender) this.render();
+    }
+
+    onClose() {
+        this.isOpen = false;
+    }
+
     render() {
+        this.needsRender = !this.isOpen;
+        if (this.needsRender) return;
         const container = document.getElementById('credentialModuleContent');
         if (!container) return;
 

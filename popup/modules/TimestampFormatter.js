@@ -10,8 +10,8 @@ class TimestampFormatter extends BaseModule {
     super('timestampFormatter'); // 模块名称需与 content 侧一致
   }
 
-  async init() {
-    await this.initModuleStatus();
+  async init(tab) {
+    await this.initModuleStatus(tab);
     this.bindEvents();
     this.updateUI();
   }

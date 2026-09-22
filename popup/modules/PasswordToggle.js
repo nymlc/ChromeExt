@@ -11,9 +11,9 @@ class PasswordToggle extends BaseModule {
     this.isVisible = false;
   }
   
-  async init() {
+  async init(tab) {
     // 初始化模块启用状态（继承自BaseModule）
-    await this.initModuleStatus();
+    await this.initModuleStatus(tab);
     
     // 密码显示状态不持久化，每次打开 popup 默认为 false
     // 实际显示状态由 content script 维护

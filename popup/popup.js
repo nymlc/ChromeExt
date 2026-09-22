@@ -13,13 +13,14 @@ class PopupManager {
     this.currentHostname = '';
     this.globalEnabled = true;
     this.modules = {
-      passwordToggle: null,
-      credentialManager: null,
-      masterGoManager: null,
-      imagePreview: null,
-      continuousBrowse: null,
-      qrCodeTool: null,
-      jsonFormatter: null,
+      password: new PasswordToggle(),
+      credential: new CredentialManager(),
+      masterGoNav: new MasterGoManager(),
+      timestampFormatter: new TimestampFormatter(),
+      imagePreview: new ImagePreview(),
+      continuousBrowse: new ContinuousBrowse(),
+      qrCodeTool: new QrCodeTool(),
+      jsonFormatter: new JsonFormatter(),
     };
     this.activeSubpageModule = null; // 'credential' | 'masterGoNav' | 'password' | 'timestampFormatter' | 'imagePreview' | 'qrCodeTool' | 'hiddenModules'
 
@@ -41,8 +42,11 @@ class PopupManager {
   }
 
   async init() {
-    // 获取当前网站
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    this.renderVersion();
+    const [[tab], result] = await Promise.all([
+      chrome.tabs.query({ active: true, currentWindow: true }),
+      chrome.storage.local.get(['globalDisabledSites', 'moduleOrder', 'hiddenModules']),
+    ]);
     if (tab && tab.url) {
       try {
         const url = new URL(tab.url);
@@ -52,52 +56,16 @@ class PopupManager {
       }
     }
 
-    // 读取全局设置
-    const result = await chrome.storage.local.get(['globalDisabledSites']);
     const disabledSites = result.globalDisabledSites || [];
     this.globalEnabled = !disabledSites.includes(this.currentHostname);
-
-    // 绑定全局开关
     this.bindGlobalEvents();
     this.updateGlobalUI();
-
-    // 版本号从 manifest 动态注入（避免写死，manifest 为唯一版本源）
-    this.renderVersion();
-
-    // 初始化密码模块
-    this.modules.passwordToggle = new PasswordToggle();
-    await this.modules.passwordToggle.init();
-
-    this.modules.credentialManager = new CredentialManager();
-    await this.modules.credentialManager.init();
-
-    this.modules.masterGoManager = new MasterGoManager();
-    await this.modules.masterGoManager.init();
-
-    this.modules.timestampFormatter = new TimestampFormatter();
-    await this.modules.timestampFormatter.init();
-
-    this.modules.imagePreview = new ImagePreview();
-    await this.modules.imagePreview.init();
-
-    this.modules.continuousBrowse = new ContinuousBrowse();
-    await this.modules.continuousBrowse.init(tab);
-
-    this.modules.qrCodeTool = new QrCodeTool();
-    await this.modules.qrCodeTool.init();
-
-    this.modules.jsonFormatter = new JsonFormatter();
-    await this.modules.jsonFormatter.init();
-
-    // 恢复模块顺序并初始化拖拽
-    await this.restoreModuleOrder();
+    this.restoreModuleOrder(result.moduleOrder);
     this.initDragSort();
+    this.initModuleHiding(result.hiddenModules);
 
-    // 初始化路由导航
+    await Promise.all(Object.values(this.modules).map(module => module.init(tab)));
     this.initNavigation();
-
-    // 初始化模块隐藏功能
-    await this.initModuleHiding();
   }
 
   // 版本号从 manifest 动态读取并注入页脚（manifest 为唯一版本源，避免写死）
@@ -274,9 +242,7 @@ class PopupManager {
   /**
    * 恢复保存的模块顺序
    */
-  async restoreModuleOrder() {
-    const result = await chrome.storage.local.get(['moduleOrder']);
-    const order = result.moduleOrder;
+  restoreModuleOrder(order) {
     if (!order || !order.length) return;
 
     const container = document.getElementById('modulesContainer');
@@ -372,9 +338,8 @@ class PopupManager {
   /**
    * 初始化模块隐藏：读取已隐藏列表、套用、绑定「隐藏」按钮、渲染顶部入口
    */
-  async initModuleHiding() {
-    const result = await chrome.storage.local.get(['hiddenModules']);
-    this.hiddenModules = Array.isArray(result.hiddenModules) ? result.hiddenModules : [];
+  initModuleHiding(hiddenModules) {
+    this.hiddenModules = Array.isArray(hiddenModules) ? hiddenModules : [];
 
     this.applyHiddenModules();
 
@@ -936,9 +901,9 @@ class PopupManager {
     Toast.success('数据已导入');
 
     // 刷新页面状态
-    if (this.modules.credentialManager) {
-      await this.modules.credentialManager.loadProjects();
-      this.modules.credentialManager.render();
+    if (this.modules.credential) {
+      await this.modules.credential.loadProjects();
+      this.modules.credential.render();
     }
   }
 }

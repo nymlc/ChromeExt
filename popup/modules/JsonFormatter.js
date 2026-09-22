@@ -14,9 +14,8 @@ class JsonFormatter extends BaseModule {
     this._sortKeys = false;
   }
 
-  async init() {
-    await this.initModuleStatus();
-    await this._loadPrefs();
+  async init(tab) {
+    await Promise.all([this.initModuleStatus(tab), this._loadPrefs()]);
     this.bindEvents();
     this.updateUI();
   }

@@ -13,25 +13,13 @@ class BaseModule {
     this.currentHostname = '';
   }
   
-  /**
-   * 获取当前网站域名
-   */
-  async getCurrentHostname() {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab && tab.url) {
-      try {
-        const url = new URL(tab.url);
-        this.currentHostname = url.hostname;
-      } catch (e) {
-        this.currentHostname = '';
-      }
+  async initModuleStatus(tab) {
+    try {
+      this.currentHostname = new URL(tab?.url).hostname;
+    } catch (e) {
+      this.currentHostname = '';
     }
-    return this.currentHostname;
-  }
-  
-  async initModuleStatus() {
-    await this.getCurrentHostname();
-    
+
     // 读取模块全局启用状态
     const moduleKey = `${this.moduleName}ModuleEnabled`;
     const siteKey = `disabled${this.capitalize(this.moduleName)}Sites`;

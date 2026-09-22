@@ -11,8 +11,8 @@ class ImagePreview extends BaseModule {
     this.defaultMaxSize = 480;
   }
 
-  async init() {
-    await this.initModuleStatus();
+  async init(tab) {
+    await this.initModuleStatus(tab);
     this.bindEvents();
     this.updateUI();
   }
