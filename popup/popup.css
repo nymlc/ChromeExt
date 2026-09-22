@@ -901,3 +901,19 @@ input[type="text"].cmf-tag-create-input:focus {
 .jf-bool { color: #8250df; }
 .jf-null { color: var(--text-secondary); }
 .jf-punc { color: #55555a; }
+
+.continuous-browse-details {
+  margin: 12px 0;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--card-bg);
+  font-size: 13px;
+}
+.continuous-browse-details dl { display: grid; grid-template-columns: 60px 1fr; gap: 8px; }
+.continuous-browse-details dt { color: var(--text-secondary); }
+.continuous-browse-details dd { min-width: 0; overflow-wrap: anywhere; }
+.continuous-browse-controls { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+#continuousBrowseModuleContent .hint { padding: 0 0 12px; line-height: 1.5; overflow-wrap: anywhere; }
+#continuousBrowseModuleContent .btn:disabled,
+#continuousBrowseModuleContent input:disabled + .slider,
+#continuousBrowseModuleEntry input:disabled + .slider { opacity: 0.4; cursor: not-allowed; }

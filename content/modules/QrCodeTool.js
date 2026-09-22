@@ -56,7 +56,7 @@ class QrCodeTool extends BaseContentModule {
   }
 
   _onMessage(msg, sender, sendResponse) {
-    if (!msg) return;
+    if (!msg || !['qr-generate', 'qr-decode-image', 'qr-decode-page'].includes(msg.type)) return;
     if (msg.type === 'qr-generate') {
       this._generate(msg.text || '');
     } else if (msg.type === 'qr-decode-image') {

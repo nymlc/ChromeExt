@@ -60,6 +60,13 @@
         'imagePreviewMaxSize',
       ],
     },
+    continuousBrowse: {
+      name: '连续浏览',
+      keys: [
+        'continuousBrowseModuleEnabled',
+        'disabledContinuousBrowseSites',
+      ],
+    },
     qrCodeTool: {
       name: '二维码工具',
       keys: [

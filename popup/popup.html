@@ -179,6 +179,38 @@
             </div>
           </div>
 
+          <!-- 连续浏览模块 -->
+          <div class="feature-module clickable-module" data-module-id="continuousBrowse" draggable="true"
+            id="continuousBrowseModuleEntry">
+            <div class="module-header">
+              <div class="module-header-left">
+                <span class="drag-handle" title="拖拽排序">
+                  <svg width="14" height="18" viewBox="0 0 14 18" fill="currentColor" aria-hidden="true">
+                    <circle cx="4" cy="4" r="1.5"></circle><circle cx="10" cy="4" r="1.5"></circle>
+                    <circle cx="4" cy="9" r="1.5"></circle><circle cx="10" cy="9" r="1.5"></circle>
+                    <circle cx="4" cy="14" r="1.5"></circle><circle cx="10" cy="14" r="1.5"></circle>
+                  </svg>
+                </span>
+                <h2>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round" style="color: #008a80; margin-right: 6px;" aria-hidden="true">
+                    <path d="M4 3h16v7H4zM4 14h7v7H4zM17 14v7m-3-3 3 3 3-3"></path>
+                  </svg>
+                  连续浏览
+                </h2>
+              </div>
+              <div class="module-header-right">
+                <svg class="enter-icon" width="12" height="18" viewBox="0 0 12 18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                  <path d="m4 4 5 5-5 5"></path>
+                </svg>
+                <label class="switch">
+                  <input type="checkbox" id="continuousBrowseModuleEnabled" aria-label="全局启用连续浏览">
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+
           <!-- 二维码工具模块 -->
           <div class="feature-module clickable-module" data-module-id="qrCodeTool" draggable="true"
             id="qrCodeToolModuleEntry" data-page-node-id="vpAr6dFEJKZRfLbi7IrPwH">
@@ -289,6 +321,37 @@
         <p class="hint" data-page-node-id="kmfTp3A8K2PFThsqinmRnK">复制单独的 HTTP(S) 图片地址会尝试预览；从其它应用复制后，在网页或输入框粘贴该地址也可预览。不会阻止粘贴，普通链接或加载失败时不会打扰。</p>
       </div>
 
+      <div class="subpage-content" id="continuousBrowseModuleContent" style="display:none;">
+        <div class="scrollable-area">
+          <div class="setting-item">
+            <span>当前网站启用</span>
+            <label class="switch">
+              <input type="checkbox" id="continuousBrowseSiteEnabled" aria-label="当前网站启用连续浏览" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="module-content continuous-browse-details" id="continuousBrowseDetails" role="status" aria-live="polite">
+            <dl>
+              <dt>支持状态</dt><dd id="continuousBrowseState">尚未检测</dd>
+              <dt>规则名称</dt><dd id="continuousBrowseAdapter">—</dd>
+              <dt>已加载</dt><dd id="continuousBrowseLoaded">—</dd>
+              <dt>加载页数</dt><dd id="continuousBrowsePages">—</dd>
+            </dl>
+          </div>
+          <p class="hint" id="continuousBrowseMessage" role="status" hidden></p>
+          <div class="continuous-browse-controls" id="continuousBrowseControls" aria-busy="false">
+            <button type="button" id="continuousBrowseStart" class="btn btn-primary btn-block" disabled>立即开始</button>
+            <button type="button" id="continuousBrowsePause" class="btn btn-secondary btn-small" title="仅暂时暂停，不关闭本站" disabled>暂停</button>
+            <button type="button" id="continuousBrowseRetry" class="btn btn-secondary btn-small" disabled>重试</button>
+            <button type="button" id="continuousBrowseStop" class="btn btn-secondary btn-small" title="关闭本站并恢复原分页；下次访问仍保持关闭" disabled>关闭本站</button>
+            <button type="button" id="continuousBrowseDetect" class="btn btn-secondary btn-small" disabled>重新检测</button>
+          </div>
+          <p class="hint">模块与当前网站均启用时，支持的页面会自动开始，无需点击。从当前页起追加后续内容，不补齐之前的分页。</p>
+          <p class="hint">暂停仅临时停止加载；“关闭本站”会恢复原分页，刷新或下次访问仍保持关闭。重新打开“当前网站启用”开关后将自动运行。</p>
+          <p class="hint">支持的 Element Plus 数据表格保留原生交互；行内业务操作前自动恢复对应分页。普通 HTML 与 YApi 仅只读追加，编辑前请关闭本站。</p>
+        </div>
+      </div>
+
       <div class="subpage-content" id="qrCodeToolModuleContent" style="display:none;" data-page-node-id="YxA7sa5P0dyN9pX53U830d">
         <div class="setting-item" style="flex-direction:column; align-items:stretch; gap:8px;" data-page-node-id="c31AupA53yXoo2pUMZ7sl3">
           <div style="font-weight:600;" data-page-node-id="oTpbiyTri2JrZRIyKGPBDh">生成二维码</div>
@@ -372,6 +435,7 @@
   <script src="modules/MasterGoManager.js"></script>
   <script src="modules/TimestampFormatter.js"></script>
   <script src="modules/ImagePreview.js"></script>
+  <script src="modules/ContinuousBrowse.js"></script>
   <script src="modules/QrCodeTool.js"></script>
   <script src="modules/JsonFormatter.js"></script>
   <script src="popup.js"></script>

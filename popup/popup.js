@@ -17,6 +17,7 @@ class PopupManager {
       credentialManager: null,
       masterGoManager: null,
       imagePreview: null,
+      continuousBrowse: null,
       qrCodeTool: null,
       jsonFormatter: null,
     };
@@ -29,6 +30,7 @@ class PopupManager {
       password: 'passwordModuleContent',
       timestampFormatter: 'timestampFormatterModuleContent',
       imagePreview: 'imagePreviewModuleContent',
+      continuousBrowse: 'continuousBrowseModuleContent',
       qrCodeTool: 'qrCodeToolModuleContent',
       jsonFormatter: 'jsonFormatterModuleContent',
       hiddenModules: 'hiddenModulesModuleContent',
@@ -77,6 +79,9 @@ class PopupManager {
 
     this.modules.imagePreview = new ImagePreview();
     await this.modules.imagePreview.init();
+
+    this.modules.continuousBrowse = new ContinuousBrowse();
+    await this.modules.continuousBrowse.init(tab);
 
     this.modules.qrCodeTool = new QrCodeTool();
     await this.modules.qrCodeTool.init();
@@ -128,6 +133,7 @@ class PopupManager {
     bindEntry(document.getElementById('passwordModuleEntry'), 'password', '密码显示');
     bindEntry(document.getElementById('timestampFormatterModuleEntry'), 'timestampFormatter', '时间戳格式化');
     bindEntry(document.getElementById('imagePreviewModuleEntry'), 'imagePreview', '图片预览');
+    bindEntry(document.getElementById('continuousBrowseModuleEntry'), 'continuousBrowse', '连续浏览');
     bindEntry(document.getElementById('qrCodeToolModuleEntry'), 'qrCodeTool', '二维码工具');
     bindEntry(document.getElementById('jsonFormatterModuleEntry'), 'jsonFormatter', 'JSON 格式化');
 
@@ -146,7 +152,11 @@ class PopupManager {
   }
 
   openSubpage(title, moduleId) {
+    if (this.activeSubpageModule !== moduleId) {
+      this.modules[this.activeSubpageModule]?.onClose?.();
+    }
     this.activeSubpageModule = moduleId;
+    this.modules[moduleId]?.onOpen?.();
 
     // 切换可见的 content 容器（data-driven）
     const activeContentId = this.contentMap[moduleId];
@@ -170,6 +180,8 @@ class PopupManager {
   }
 
   closeSubpage() {
+    this.modules[this.activeSubpageModule]?.onClose?.();
+    this.activeSubpageModule = null;
     const wrapper = document.getElementById('appWrapper');
     if (wrapper) {
       wrapper.classList.remove('show-subpage');

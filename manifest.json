@@ -42,6 +42,14 @@
   },
   "content_scripts": [
     {
+      "matches": ["http://*/*", "https://*/*"],
+      "exclude_matches": ["https://mastergo.com/*"],
+      "js": ["content/modules/ContinuousBrowseTableBridge.js"],
+      "world": "MAIN",
+      "run_at": "document_start",
+      "all_frames": false
+    },
+    {
       "matches": [
         "<all_urls>"
       ],
@@ -65,6 +73,8 @@
         "content/modules/CredentialFiller.js",
         "content/modules/TimestampFormatter.js",
         "content/modules/QrCodeTool.js",
+        "content/modules/ContinuousBrowseAdapters.js",
+        "content/modules/ContinuousBrowse.js",
         "content/content.js"
       ],
       "run_at": "document_idle",

@@ -16,6 +16,7 @@ class ContentManager {
       timestampFormatter: null,
       qrCodeTool: null,
       imagePreview: null,
+      continuousBrowse: null,
     };
     this._subscribed = false;
     this._unsub = null;
@@ -25,6 +26,7 @@ class ContentManager {
   async init() {
     // 集中初始化存储缓存（全页面仅注册一次 onChanged 监听）
     await StorageState.init();
+    this._subscribeOnce();
 
     // 检查全局是否禁用
     const hostname = window.location.hostname;
@@ -35,15 +37,13 @@ class ContentManager {
       return;
     }
 
-    // 确保只订阅一次存储变更
-    this._subscribeOnce();
-
     // 初始化各个功能模块（模块内部会检查是否被禁用）
     await this.initPasswordModule();
     await this.initCredentialModule();
     await this.initTimestampModule();
     await this.initQrCodeModule();
     await this.initImagePreviewModule();
+    await this.initContinuousBrowseModule();
   }
 
   _subscribeOnce() {
@@ -90,6 +90,12 @@ class ContentManager {
     }
     this.modules.imagePreview = new ImagePreview();
     await this.modules.imagePreview.init();
+  }
+
+  async initContinuousBrowseModule() {
+    this.modules.continuousBrowse?.destroy();
+    this.modules.continuousBrowse = new ContinuousBrowse();
+    await this.modules.continuousBrowse.init();
   }
 
   onStorageChange(changes) {
@@ -268,6 +274,13 @@ class ContentManager {
     if (changes.imagePreviewMaxSize) {
       this.modules.imagePreview?.applyStorageChanges(changes);
     }
+
+    const continuousSites = changes.disabledContinuousBrowseSites;
+    const continuousSiteChanged = continuousSites
+      && !!continuousSites.oldValue?.includes(hostname) !== !!continuousSites.newValue?.includes(hostname);
+    if (changes.continuousBrowseModuleEnabled || continuousSiteChanged) {
+      this.initContinuousBrowseModule();
+    }
   }
 
   destroy() {
@@ -282,6 +295,7 @@ class ContentManager {
     this.modules.timestampFormatter = null;
     this.modules.qrCodeTool = null;
     this.modules.imagePreview = null;
+    this.modules.continuousBrowse = null;
     // 保留存储订阅：全局重新启用时仍需监听；重复 init 由 _subscribeOnce 去重
   }
 }

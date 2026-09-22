@@ -17,6 +17,7 @@
     masterGoNav: { name: 'MasterGo 导航', keys: ['mastergoNavNodes', 'mastergoNavGroups', 'mastergoNavPoolCapacity', 'mastergoNavCollapsed', 'mastergoNavSide', 'mastergoNavTheme', 'masterGoNavModuleEnabled', 'disabledMasterGoNavSites'] },
     timestampFormatter: { name: '时间戳格式化', keys: ['timestampFormatterModuleEnabled', 'disabledTimestampFormatterSites', 'timestampFormatterShowUTC', 'timestampFormatterShowRelative'] },
     imagePreview: { name: '图片预览', keys: ['imagePreviewModuleEnabled', 'disabledImagePreviewSites', 'imagePreviewMaxSize'] },
+    continuousBrowse: { name: '连续浏览', keys: ['continuousBrowseModuleEnabled', 'disabledContinuousBrowseSites'] },
     qrCodeTool: { name: '二维码工具', keys: ['qrCodeToolModuleEnabled', 'disabledQrCodeToolSites'] },
     global: { name: '全局设置（模块隐藏/顺序）', keys: ['globalDisabledSites', 'moduleOrder', 'hiddenModules'] },
   };
@@ -180,6 +181,11 @@
       if (data.imagePreviewModuleEnabled !== undefined) parts.push('开关：' + (data.imagePreviewModuleEnabled ? '开' : '关'));
       if (!isEmpty(data.imagePreviewMaxSize)) parts.push('阈值 ' + data.imagePreviewMaxSize);
       if (!isEmpty(data.disabledImagePreviewSites)) parts.push('站点禁用 ' + data.disabledImagePreviewSites.length + ' 个');
+    }
+
+    if (id === 'continuousBrowse') {
+      if (data.continuousBrowseModuleEnabled !== undefined) parts.push('开关：' + (data.continuousBrowseModuleEnabled ? '开' : '关'));
+      if (!isEmpty(data.disabledContinuousBrowseSites)) parts.push('站点禁用 ' + data.disabledContinuousBrowseSites.length + ' 个');
     }
 
     if (id === 'password') {

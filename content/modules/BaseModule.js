@@ -10,6 +10,8 @@ class BaseContentModule {
     this.moduleName = moduleName; // 模块名称，如 'password', 'autoFill'
     this.isEnabled = true;
   }
+
+  get defaultEnabled() { return true; }
   
   /**
    * 检查模块是否应该启用
@@ -36,9 +38,11 @@ class BaseContentModule {
 
     // 2. 检查模块是否全局启用
     const moduleKey = `${this.moduleName}ModuleEnabled`;
-    const moduleEnabled = (typeof StorageState !== 'undefined'
-      ? StorageState.get(moduleKey, true)
-      : (await chrome.storage.local.get([moduleKey]))[moduleKey]) !== false;
+    const defaultOn = this.defaultEnabled;
+    const raw = typeof StorageState !== 'undefined'
+      ? StorageState.get(moduleKey, defaultOn)
+      : (await chrome.storage.local.get([moduleKey]))[moduleKey];
+    const moduleEnabled = defaultOn ? raw !== false : raw === true;
 
     if (!moduleEnabled) {
       console.log(`${this.moduleName} 功能已全局禁用`);
