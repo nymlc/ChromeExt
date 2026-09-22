@@ -12,6 +12,7 @@ class BaseContentModule {
   }
 
   get defaultEnabled() { return true; }
+  get defaultSiteEnabled() { return true; }
   
   /**
    * 检查模块是否应该启用
@@ -50,13 +51,13 @@ class BaseContentModule {
       return false;
     }
 
-    // 3. 检查当前网站是否禁用了该功能
-    const siteKey = `disabled${this.capitalize(this.moduleName)}Sites`;
-    const disabledSites = (typeof StorageState !== 'undefined'
+    const siteKey = `${this.defaultSiteEnabled ? 'disabled' : 'enabled'}${this.capitalize(this.moduleName)}Sites`;
+    const sites = (typeof StorageState !== 'undefined'
       ? StorageState.get(siteKey, [])
       : (await chrome.storage.local.get([siteKey]))[siteKey]) || [];
+    const siteEnabled = this.defaultSiteEnabled ? !sites.includes(hostname) : sites.includes(hostname);
 
-    if (disabledSites.includes(hostname)) {
+    if (!siteEnabled) {
       console.log(`${this.moduleName} 功能已在 ${hostname} 禁用`);
       this.isEnabled = false;
       return false;

@@ -326,7 +326,7 @@
           <div class="setting-item">
             <span>当前网站启用</span>
             <label class="switch">
-              <input type="checkbox" id="continuousBrowseSiteEnabled" aria-label="当前网站启用连续浏览" checked>
+              <input type="checkbox" id="continuousBrowseSiteEnabled" aria-label="当前网站启用连续浏览">
               <span class="slider"></span>
             </label>
           </div>
@@ -346,7 +346,7 @@
             <button type="button" id="continuousBrowseStop" class="btn btn-secondary btn-small" title="关闭本站并恢复原分页；下次访问仍保持关闭" disabled>关闭本站</button>
             <button type="button" id="continuousBrowseDetect" class="btn btn-secondary btn-small" disabled>重新检测</button>
           </div>
-          <p class="hint">模块与当前网站均启用时，支持的页面会自动开始，无需点击。从当前页起追加后续内容，不补齐之前的分页。</p>
+          <p class="hint">所有网站默认关闭，仅手动开启“当前网站启用”后才会运行，并记住该域名。模块总开关不会自动启用其他网站；从当前页起追加后续内容。</p>
           <p class="hint">暂停仅临时停止加载；“关闭本站”会恢复原分页，刷新或下次访问仍保持关闭。重新打开“当前网站启用”开关后将自动运行。</p>
           <p class="hint">支持的 Element Plus 数据表格保留原生交互；行内业务操作前自动恢复对应分页。普通 HTML 与 YApi 仅只读追加，编辑前请关闭本站。</p>
         </div>

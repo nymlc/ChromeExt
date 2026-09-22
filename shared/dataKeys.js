@@ -64,7 +64,7 @@
       name: '连续浏览',
       keys: [
         'continuousBrowseModuleEnabled',
-        'disabledContinuousBrowseSites',
+        'enabledContinuousBrowseSites',
       ],
     },
     qrCodeTool: {

@@ -12,6 +12,7 @@ class ContinuousBrowse extends BaseContentModule {
   }
 
   get defaultEnabled() { return false; }
+  get defaultSiteEnabled() { return false; }
 
   async init() {
     if (window !== window.top || this._destroyed) return;
@@ -57,11 +58,11 @@ class ContinuousBrowse extends BaseContentModule {
     } else if (command === 'stop') {
       this.isEnabled = false;
       this.stop('已在本站关闭连续浏览，下次访问仍保持关闭');
-      const key = 'disabledContinuousBrowseSites';
+      const key = 'enabledContinuousBrowseSites';
       const data = await chrome.storage.local.get([key]);
-      const disabledSites = data[key] || [];
-      if (!disabledSites.includes(location.hostname)) {
-        await chrome.storage.local.set({ [key]: [...disabledSites, location.hostname] });
+      const enabledSites = data[key] || [];
+      if (enabledSites.includes(location.hostname)) {
+        await chrome.storage.local.set({ [key]: enabledSites.filter(site => site !== location.hostname) });
       }
     } else if (command === 'pause' && this.adapter && ['running', 'loading'].includes(this.state)) {
       this.state = 'paused';
@@ -90,7 +91,8 @@ class ContinuousBrowse extends BaseContentModule {
       loaded: this.adapter?.loaded || 0,
       total: this.adapter?.total ?? null,
       pages: this.pages,
-      message: this.message || (!detected ? '当前页面暂未适配' : this.adapter ? '' : '已识别分页，将自动开启连续浏览'),
+      message: this.message || (!detected ? '当前页面暂未适配' : this.adapter ? '' : !this.isEnabled
+        ? '连续浏览未启用，请在弹窗中手动开启模块及当前网站' : '已识别分页，将自动开启连续浏览'),
     };
   }
 

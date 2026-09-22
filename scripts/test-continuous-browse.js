@@ -13,21 +13,21 @@ const fixture = (url) => {
   const next = page < 3 ? `<nav class="pagination"><a rel="next" href="?mode=${mode}&page=${page + 1}">下一页</a></nav>` : '';
   const content = mode === 'unsupported' ? '<p>没有可靠分页规则</p><button>下一页</button>' : `<ul id="results">${items.map(id => `<li><a href="/detail/${id}">测试条目 ${id}</a><p>第 ${id} 条内容</p></li>`).join('')}${page === 2 ? '<script>window.injected = true</script><li onclick="window.injected=true"><a href="javascript:window.injected=true">安全条目</a><img src="/missing.png" onerror="window.injected=true"><iframe srcdoc="test"></iframe></li>' : ''}</ul>${next}`;
   return `<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><title>连续浏览回归</title><style>body{margin:32px;font:15px system-ui;background:#f6f7f9}main{max-width:850px;margin:auto}li{min-height:180px;padding:20px;background:white;border-bottom:1px solid #ddd}button{padding:8px;margin:4px}#scroll{${mode === 'nested' ? 'height:320px;overflow:auto;border:1px solid #ccc' : ''}}</style></head><body><header><h1>连续浏览测试</h1><button id="start">开始连续浏览</button><button id="pause">暂停</button><button id="resume">继续</button><button id="stop">恢复原分页</button><button id="test">运行自动回归</button><output id="result"></output></header><div id="scroll"><main>${content}</main></div>${scripts.map(src => `<script src="${src}"></script>`).join('')}<script>
-  window.fixtureData = {};
+  window.fixtureData = { continuousBrowseModuleEnabled: true, enabledContinuousBrowseSites: [location.hostname] };
   window.chrome = {runtime:{onMessage:{addListener(){},removeListener(){}}},storage:{local:{async get(){return {...fixtureData}},async set(values){Object.assign(fixtureData,values)}}}};
   window.browserModule = new ContinuousBrowse();
   window.browserReady = browserModule.init();
   ['pause','resume','stop'].forEach(command=>document.getElementById(command).onclick=()=>browserModule.command(command));
-  document.getElementById('start').onclick=async()=>{await chrome.storage.local.set({disabledContinuousBrowseSites:[]});browserModule.destroy();window.browserModule=new ContinuousBrowse();await browserModule.init()};
+  document.getElementById('start').onclick=async()=>{await chrome.storage.local.set({continuousBrowseModuleEnabled:true,enabledContinuousBrowseSites:[location.hostname]});browserModule.destroy();window.browserModule=new ContinuousBrowse();await browserModule.init()};
   document.getElementById('test').onclick=()=>runRegression();
   async function runRegression(){
     const checks=[];
     const assert=(name,ok)=>{checks.push({name,pass:!!ok});if(!ok)throw new Error(name)};
-    const waitFor=async(test)=>{const end=Date.now()+3000;while(!test()){if(Date.now()>end)throw new Error('自动开启超时');await new Promise(resolve=>setTimeout(resolve,25))}};
+    const waitFor=async(test)=>{const end=Date.now()+3000;while(!test()){if(Date.now()>end)throw new Error('授权后自动开启超时');await new Promise(resolve=>setTimeout(resolve,25))}};
     try {
       await browserReady;
       assert('识别通用HTML分页',browserModule.status().adapter==='通用 HTML 分页');
-      assert('支持页面默认自动开启',!!browserModule.adapter && browserModule.pages===1);
+      assert('支持页面授权后自动开启',!!browserModule.adapter && browserModule.pages===1);
       await browserModule.command('pause');
       await browserModule._load();
       assert('暂停不加载',browserModule.pages===1);
@@ -43,19 +43,19 @@ const fixture = (url) => {
       assert('末页停止',browserModule.state==='done' && browserModule.adapter.loaded===12 && browserModule.pages===3);
       await browserModule.command('stop');
       assert('恢复分页与清理UI',!document.querySelector('[data-geek-continuous-browse]') && document.querySelector('.pagination').style.display==='');
-      assert('关闭记录当前域名',fixtureData.disabledContinuousBrowseSites.includes(location.hostname));
+      assert('关闭移除当前域名许可',!fixtureData.enabledContinuousBrowseSites.includes(location.hostname));
       browserModule.destroy();
       window.browserModule=new ContinuousBrowse();await browserModule.init();
       assert('下次初始化仍保持关闭',!browserModule.adapter && !browserModule.isEnabled);
-      await chrome.storage.local.set({disabledContinuousBrowseSites:[]});
+      await chrome.storage.local.set({continuousBrowseModuleEnabled:true,enabledContinuousBrowseSites:[location.hostname]});
       browserModule.destroy();
       window.browserModule=new ContinuousBrowse();await browserModule.init();
-      assert('恢复网站开关后自动开启',!!browserModule.adapter);
+      assert('重新许可当前网站后自动开启',!!browserModule.adapter);
       await browserModule.command('pause');
       history.pushState({},'', '?mode=normal&page=1&changed=1');browserModule._checkContext();
       assert('路由变化退出',!browserModule.adapter);
       await waitFor(()=>browserModule.adapter);
-      assert('路由变化后自动开启且不关闭域名',browserModule.pages===1 && !fixtureData.disabledContinuousBrowseSites.includes(location.hostname));
+      assert('路由变化后自动开启且保留域名许可',browserModule.pages===1 && fixtureData.enabledContinuousBrowseSites.includes(location.hostname));
       await browserModule.command('pause');
       document.querySelector('#results li p').textContent='筛选后内容';
       await new Promise(resolve=>setTimeout(resolve,0));
@@ -78,7 +78,7 @@ const fixture = (url) => {
       await waitFor(()=>browserModule.adapter);
       assert('页面恢复后自动开启',browserModule.pages===1);
       await browserModule.command('pause');
-      assert('暂停不记录域名关闭',!fixtureData.disabledContinuousBrowseSites.includes(location.hostname));
+      assert('暂停保留域名许可',fixtureData.enabledContinuousBrowseSites.includes(location.hostname));
     } catch(error){checks.push({error:error.message})}
     browserModule.destroy();
     window.regressionResults=checks;
@@ -280,7 +280,7 @@ function setupTableFixture(client = false, options = {}) {
   window.fixtureTableSelection = selection;
   window.fixtureTableOwner = owner;
   if (new URL(location.href).searchParams.has('extension')) return;
-  window.fixtureData = {};
+  window.fixtureData = { continuousBrowseModuleEnabled: true, enabledContinuousBrowseSites: [location.hostname] };
   window.chrome = { runtime: { onMessage: { addListener() {}, removeListener() {} } }, storage: { local: {
     async get() { return { ...window.fixtureData }; }, async set(data) { Object.assign(window.fixtureData, data); },
   } } };
@@ -332,7 +332,7 @@ function setupTableFixture(client = false, options = {}) {
         && JSON.stringify(state.allData) === saved.json);
       const prepare = async (page = 1, data = [...rows(1), ...rows(2), ...rows(3)]) => {
         browserModule.destroy();
-        window.fixtureData = {};
+        window.fixtureData = { continuousBrowseModuleEnabled: true, enabledContinuousBrowseSites: [location.hostname] };
         starts.length = 0;
         selection.clear();
         document.querySelector('#detail').hidden = true;
@@ -415,7 +415,7 @@ function setupTableFixture(client = false, options = {}) {
           && ids(state.tableData) === '1,2,3' && domIds() === '1,2,3');
         assertSource(source);
         assert('关闭移除浮层、恢复分页并记忆域名', !browserModule.adapter && !document.querySelector('[data-geek-continuous-browse]')
-          && pager.style.display === '' && fixtureData.disabledContinuousBrowseSites.includes(location.hostname));
+          && pager.style.display === '' && !fixtureData.enabledContinuousBrowseSites.includes(location.hostname));
         await delay(400);
         browserModule._checkContext();
         assert('显式关闭后不自动重启', !browserModule.adapter && starts.length === 1);
@@ -606,7 +606,7 @@ function setupTableFixture(client = false, options = {}) {
         controls.ignoreNext = false;
         window.fixtureFail = false;
         window.fixtureSlow = false;
-        window.fixtureData = {};
+        window.fixtureData = { continuousBrowseModuleEnabled: true, enabledContinuousBrowseSites: [location.hostname] };
         selection.clear();
         document.querySelector('#detail').hidden = true;
         delete window.fixtureDetail;
@@ -750,7 +750,7 @@ function setupTableFixture(client = false, options = {}) {
         assert('晚到响应仅保留原站单页，不追加旧页也不自动重启', !browserModule.adapter && adapter.loaded === 6
           && pagination.currentPage === 3 && state.tableData === controls.loads.at(-1).data && domIds() === '7,8'
           && pager.style.display === '' && !document.querySelector('[data-geek-continuous-browse]')
-          && fixtureData.disabledContinuousBrowseSites.includes(location.hostname));
+          && !fixtureData.enabledContinuousBrowseSites.includes(location.hostname));
       });
       for (const inflight of [false, true]) {
         await test('owner.props 查询失效：' + (inflight ? '在途' : '空闲'), async () => {
@@ -821,7 +821,7 @@ function setupTableFixture(client = false, options = {}) {
     const waitFor = async test => { const end = Date.now() + 4000; while (!test()) { if (Date.now() > end) throw new Error('表格状态超时'); await new Promise(resolve => setTimeout(resolve, 25)); } };
     const restart = async () => {
       browserModule.destroy();
-      window.fixtureData = {};
+      window.fixtureData = { continuousBrowseModuleEnabled: true, enabledContinuousBrowseSites: [location.hostname] };
       window.browserModule = new ContinuousBrowse();
       await browserModule.init();
     };
@@ -851,7 +851,7 @@ function setupTableFixture(client = false, options = {}) {
       assert('最后一页停止',browserModule.state === 'done' && state.tableData.length === 8);
       await browserModule.command('stop');
       assert('关闭恢复最后单页和页码',state.formData.pageNum === 3 && state.tableData.length === 2 && !table.querySelector('[data-geek-continuous-browse]'));
-      assert('关闭记忆不丢失',fixtureData.disabledContinuousBrowseSites.includes(location.hostname));
+      assert('关闭记忆不丢失',!fixtureData.enabledContinuousBrowseSites.includes(location.hostname));
       await state.handleCurrentChange(1); await restart();
       await browserModule._load();
       state.formData.keyword = '新筛选';
@@ -962,7 +962,223 @@ async function testMessageRouting() {
   console.log('PASS: unrelated messages ignored, 3 QR commands preserved, continuous-browse async response delivered');
 }
 
-if (process.argv.includes('--messages')) {
+async function testSettings() {
+  const assert = require('node:assert/strict');
+  const vm = require('node:vm');
+  const sources = ['content/modules/BaseModule.js', 'content/modules/ContinuousBrowse.js', 'shared/storageState.js']
+    .map(file => ({ file, source: fs.readFileSync(path.join(root, file), 'utf8') }));
+  const hostname = 'example.com';
+  const other = 'other.example';
+  const allowed = { continuousBrowseModuleEnabled: true, enabledContinuousBrowseSites: [hostname] };
+  const clone = value => JSON.parse(JSON.stringify(value));
+
+  function harness(initial, cached, host = hostname) {
+    const data = clone(initial);
+    const listeners = new Set();
+    const reads = [], writes = [];
+    let mounts = 0;
+    const local = {
+      async get(keys) {
+        reads.push(keys == null ? null : Array.from(keys));
+        return clone(keys == null ? data : Object.fromEntries(keys
+          .filter(key => Object.prototype.hasOwnProperty.call(data, key)).map(key => [key, data[key]])));
+      },
+      async set(values) {
+        const copied = clone(values);
+        writes.push(copied);
+        const changes = Object.fromEntries(Object.entries(copied)
+          .map(([key, newValue]) => [key, { oldValue: data[key], newValue }]));
+        Object.assign(data, copied);
+        for (const listener of listeners) listener(changes, 'local');
+      },
+    };
+    const context = vm.createContext({
+      console: { ...console, log() {} },
+      location: { hostname: host, href: `https://${host}/items?page=1` },
+      document: { documentElement: {} },
+      chrome: {
+        runtime: { onMessage: { addListener() {}, removeListener() {} } },
+        storage: { local, onChanged: {
+          addListener(listener) { listeners.add(listener); },
+          removeListener(listener) { listeners.delete(listener); },
+        } },
+      },
+      MutationObserver: class { observe() {} disconnect() {} },
+      addEventListener() {}, removeEventListener() {},
+      setInterval() { return 1; }, clearInterval() {},
+      setTimeout() { return 1; }, clearTimeout() {},
+    });
+    context.window = context;
+    context.top = context;
+    for (const { file, source } of sources) {
+      if (cached || file !== 'shared/storageState.js') vm.runInContext(source, context, { filename: file });
+    }
+    const { BaseContentModule, ContinuousBrowse } = vm.runInContext('({ BaseContentModule, ContinuousBrowse })', context);
+    const modules = [];
+    return {
+      BaseContentModule, local, reads, writes,
+      snapshot: () => clone(data),
+      get mounts() { return mounts; },
+      createBrowse() {
+        const browse = new ContinuousBrowse();
+        // Stub only adapter discovery and DOM mounting, not permission checks or commands.
+        const adapter = {
+          name: 'Settings fixture', interactive: true, nextUrl: false, loaded: 1, total: 1,
+          element: { isConnected: true }, isCurrent: () => true, destroy() {},
+        };
+        browse.detect = () => adapter;
+        browse._mount = function () {
+          mounts++;
+          this._host = { isConnected: true, remove() { this.isConnected = false; } };
+        };
+        modules.push(browse);
+        return browse;
+      },
+      assertReadPath() {
+        if (cached) {
+          assert.deepEqual(reads, [null], '真实 StorageState 只初始化一次，此后从缓存读取');
+          assert.equal(listeners.size, 1, '真实 StorageState 注册变更监听');
+        } else {
+          assert.ok(reads.length > 0 && reads.every(keys => Array.isArray(keys)), '无 StorageState 时直读存储键');
+          assert.equal(listeners.size, 0);
+        }
+      },
+      destroy() { for (const browse of modules) browse.destroy(); },
+    };
+  }
+
+  const browseCases = [
+    ['未设置时关闭', {}, false],
+    ['只有总开关时关闭', { continuousBrowseModuleEnabled: true }, false],
+    ['只有白名单时总开关仍默认关闭', { enabledContinuousBrowseSites: [hostname] }, false],
+    ['空白名单不许可', { ...allowed, enabledContinuousBrowseSites: [] }, false],
+    ['旧空黑名单不许可', { continuousBrowseModuleEnabled: true, disabledContinuousBrowseSites: [] }, false],
+    ['旧其他域黑名单不许可', { continuousBrowseModuleEnabled: true, disabledContinuousBrowseSites: [other] }, false],
+    ['旧当前域黑名单不许可', { continuousBrowseModuleEnabled: true, disabledContinuousBrowseSites: [hostname] }, false],
+    ['显式许可当前域才启用', allowed, true],
+    ['旧空黑名单不影响显式许可', { ...allowed, disabledContinuousBrowseSites: [] }, true],
+    ['旧当前域黑名单不影响显式许可', { ...allowed, disabledContinuousBrowseSites: [hostname, other] }, true],
+    ['多个许可域包含当前域即可', { ...allowed, enabledContinuousBrowseSites: [other, hostname] }, true],
+    ['许可不扩散到子域', allowed, false, 'sub.example.com'],
+    ['许可不扩散到其他域', allowed, false, other],
+    ['许可不匹配域名后缀伪装', allowed, false, 'example.com.evil.test'],
+    ['子域许可不扩散到父域', { ...allowed, enabledContinuousBrowseSites: ['sub.example.com'] }, false],
+    ['子域单独许可可启用', { ...allowed, enabledContinuousBrowseSites: ['sub.example.com'] }, true, 'sub.example.com'],
+    ['URL 不等于 hostname', { ...allowed, enabledContinuousBrowseSites: ['https://example.com'] }, false],
+    ['通配域名不等于 hostname', { ...allowed, enabledContinuousBrowseSites: ['*.example.com'] }, false, 'sub.example.com'],
+    ['总开关关闭优先于白名单', { ...allowed, continuousBrowseModuleEnabled: false }, false],
+    ['非布尔总开关不能许可', { ...allowed, continuousBrowseModuleEnabled: 'true' }, false],
+    ['全局禁用当前域优先于白名单', { ...allowed, globalDisabledSites: [hostname] }, false],
+    ['全局禁用其他域不影响许可', { ...allowed, globalDisabledSites: [other] }, true],
+  ];
+  const baseCases = [
+    ['其他模块默认允许', {}, true],
+    ['其他模块空黑名单默认允许', { disabledPasswordSites: [] }, true],
+    ['其他模块不需要白名单', { enabledPasswordSites: [], enabledContinuousBrowseSites: [] }, true],
+    ['旧连续浏览黑名单不影响其他模块', { disabledContinuousBrowseSites: [hostname] }, true],
+    ['其他模块仍尊重本站黑名单', { disabledPasswordSites: [hostname] }, false],
+    ['其他模块的别站黑名单不影响本站', { disabledPasswordSites: [other] }, true],
+    ['其他模块仍尊重总开关', { passwordModuleEnabled: false }, false],
+    ['其他模块仍尊重全局禁用', { globalDisabledSites: [hostname] }, false],
+  ];
+  let passed = 0, failed = 0;
+  for (const cached of [false, true]) {
+    const label = cached ? 'StorageState' : 'direct storage';
+    const test = async (name, initial, run, host) => {
+      const fixture = harness(initial, cached, host);
+      try {
+        await run(fixture);
+        passed++;
+      } catch (error) {
+        failed++;
+        console.error(`FAIL [${label}] ${name}: ${error.message}`);
+      } finally { fixture.destroy(); }
+    };
+    for (const [name, initial, enabled, host] of browseCases) {
+      await test(name, initial, async fixture => {
+        const browse = fixture.createBrowse();
+        assert.equal(browse.defaultEnabled, false, '连续浏览总开关默认关闭');
+        assert.equal(browse.defaultSiteEnabled, false, '连续浏览网站默认关闭');
+        assert.equal(await browse.checkModuleEnabled(), enabled, 'checkModuleEnabled 返回值');
+        assert.equal(browse.isEnabled, enabled, 'isEnabled 与读取结果一致');
+        await browse.init();
+        assert.equal(!!browse.adapter, enabled, '初始化只启动获准站点');
+        assert.equal((await browse.command('start')).active, enabled, 'start 遵守现有许可');
+        const direct = fixture.createBrowse();
+        assert.equal((await direct.command('start')).active, enabled, '未经 init 的 start 也不能绕过许可');
+        assert.equal(fixture.mounts, enabled ? 2 : 0, '实际 start 只为获准站点挂载，重复命令不重建');
+        assert.deepEqual(fixture.writes, [], '读取、初始化和 start 均不写入或迁移授权');
+        assert.deepEqual(fixture.snapshot(), initial, '包括旧黑名单在内的设置保持不变');
+        fixture.assertReadPath();
+      }, host);
+    }
+    for (const [name, initial, enabled] of baseCases) {
+      await test(name, initial, async fixture => {
+        const module = new fixture.BaseContentModule('password');
+        assert.equal(module.defaultEnabled, true);
+        assert.equal(module.defaultSiteEnabled, true, 'Base 其他模块网站仍默认允许');
+        assert.equal(await module.checkModuleEnabled(), enabled);
+        assert.equal(module.isEnabled, enabled);
+        assert.deepEqual(fixture.writes, []);
+        fixture.assertReadPath();
+      });
+    }
+    await test('设置变更后重新检查许可', {}, async fixture => {
+      const browse = fixture.createBrowse();
+      assert.equal(await browse.checkModuleEnabled(), false);
+      for (const [values, enabled] of [
+        [{ continuousBrowseModuleEnabled: true }, false],
+        [{ disabledContinuousBrowseSites: [] }, false],
+        [{ enabledContinuousBrowseSites: [other] }, false],
+        [{ enabledContinuousBrowseSites: [hostname, other] }, true],
+        [{ globalDisabledSites: [hostname] }, false],
+        [{ globalDisabledSites: [] }, true],
+        [{ continuousBrowseModuleEnabled: false }, false],
+        [{ continuousBrowseModuleEnabled: true }, true],
+        [{ enabledContinuousBrowseSites: [] }, false],
+      ]) {
+        await fixture.local.set(values);
+        const writes = fixture.writes.length;
+        assert.equal(await browse.checkModuleEnabled(), enabled, JSON.stringify(values));
+        assert.equal(browse.isEnabled, enabled);
+        assert.equal(fixture.writes.length, writes, '重新检查不写入设置');
+      }
+      fixture.assertReadPath();
+    });
+    const initial = { ...allowed, enabledContinuousBrowseSites: [other, hostname, 'sub.example.com'], disabledContinuousBrowseSites: [hostname] };
+    await test('stop 仅撤销当前域名，start 不能恢复授权', initial, async fixture => {
+      const browse = fixture.createBrowse();
+      await browse.init();
+      assert.equal(!!browse.adapter, true);
+      assert.equal((await browse.command('stop')).active, false);
+      assert.equal(browse.isEnabled, false);
+      const stopped = { ...initial, enabledContinuousBrowseSites: [other, 'sub.example.com'] };
+      assert.deepEqual(fixture.snapshot(), stopped, '保留其他域名、总开关和旧键，不迁移');
+      assert.equal(await browse.checkModuleEnabled(), false, 'stop 后读取路径立即看到撤销');
+      const writes = fixture.writes.length;
+      assert.equal((await browse.command('start')).active, false, 'stop 后 start 不能自我授权');
+      const reloaded = fixture.createBrowse();
+      await reloaded.init();
+      assert.equal(reloaded.isEnabled, false);
+      assert.equal(reloaded.adapter, null, '下次初始化仍关闭');
+      assert.equal(fixture.mounts, 1);
+      assert.equal(fixture.writes.length, writes, 'start 与重新初始化不写授权');
+      assert.deepEqual(fixture.snapshot(), stopped);
+      await fixture.local.set({ enabledContinuousBrowseSites: initial.enabledContinuousBrowseSites });
+      const authorizedWrites = fixture.writes.length;
+      assert.equal((await reloaded.command('start')).active, true, '必须重新显式许可才可运行');
+      assert.equal(fixture.mounts, 2);
+      assert.equal(fixture.writes.length, authorizedWrites, '获准后的 start 也不写授权');
+      assert.deepEqual(fixture.snapshot(), initial);
+    });
+  }
+  console.log(`${failed ? 'FAIL' : 'PASS'}: settings ${passed} passed, ${failed} failed (direct storage + real StorageState)`);
+  if (failed) process.exitCode = 1;
+}
+
+if (process.argv.includes('--settings')) {
+  testSettings().catch(error => { console.error(error); process.exitCode = 1; });
+} else if (process.argv.includes('--messages')) {
   testMessageRouting().catch(error => { console.error(error); process.exitCode = 1; });
 } else {
   server.listen(8765, '127.0.0.1', () => console.log('Continuous browse fixtures: http://127.0.0.1:8765 (normal, nested, unsupported, error, slow via ?mode=...)'));

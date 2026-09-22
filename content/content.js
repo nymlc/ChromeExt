@@ -275,7 +275,7 @@ class ContentManager {
       this.modules.imagePreview?.applyStorageChanges(changes);
     }
 
-    const continuousSites = changes.disabledContinuousBrowseSites;
+    const continuousSites = changes.enabledContinuousBrowseSites;
     const continuousSiteChanged = continuousSites
       && !!continuousSites.oldValue?.includes(hostname) !== !!continuousSites.newValue?.includes(hostname);
     if (changes.continuousBrowseModuleEnabled || continuousSiteChanged) {

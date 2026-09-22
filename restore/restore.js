@@ -17,7 +17,7 @@
     masterGoNav: { name: 'MasterGo 导航', keys: ['mastergoNavNodes', 'mastergoNavGroups', 'mastergoNavPoolCapacity', 'mastergoNavCollapsed', 'mastergoNavSide', 'mastergoNavTheme', 'masterGoNavModuleEnabled', 'disabledMasterGoNavSites'] },
     timestampFormatter: { name: '时间戳格式化', keys: ['timestampFormatterModuleEnabled', 'disabledTimestampFormatterSites', 'timestampFormatterShowUTC', 'timestampFormatterShowRelative'] },
     imagePreview: { name: '图片预览', keys: ['imagePreviewModuleEnabled', 'disabledImagePreviewSites', 'imagePreviewMaxSize'] },
-    continuousBrowse: { name: '连续浏览', keys: ['continuousBrowseModuleEnabled', 'disabledContinuousBrowseSites'] },
+    continuousBrowse: { name: '连续浏览', keys: ['continuousBrowseModuleEnabled', 'enabledContinuousBrowseSites'] },
     qrCodeTool: { name: '二维码工具', keys: ['qrCodeToolModuleEnabled', 'disabledQrCodeToolSites'] },
     global: { name: '全局设置（模块隐藏/顺序）', keys: ['globalDisabledSites', 'moduleOrder', 'hiddenModules'] },
   };
@@ -185,7 +185,7 @@
 
     if (id === 'continuousBrowse') {
       if (data.continuousBrowseModuleEnabled !== undefined) parts.push('开关：' + (data.continuousBrowseModuleEnabled ? '开' : '关'));
-      if (!isEmpty(data.disabledContinuousBrowseSites)) parts.push('站点禁用 ' + data.disabledContinuousBrowseSites.length + ' 个');
+      if (Array.isArray(data.enabledContinuousBrowseSites)) parts.push('已启用网站 ' + data.enabledContinuousBrowseSites.length + ' 个');
     }
 
     if (id === 'password') {

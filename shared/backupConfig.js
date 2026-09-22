@@ -21,6 +21,7 @@
       'timestampFormatterModuleEnabled', 'disabledTimestampFormatterSites',
       'timestampFormatterShowUTC', 'timestampFormatterShowRelative',
       'imagePreviewModuleEnabled', 'disabledImagePreviewSites', 'imagePreviewMaxSize',
+      'continuousBrowseModuleEnabled', 'enabledContinuousBrowseSites',
       'qrCodeToolModuleEnabled', 'disabledQrCodeToolSites',
       'globalDisabledSites', 'moduleOrder', 'hiddenModules',
     ];

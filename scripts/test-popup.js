@@ -28,7 +28,8 @@ function setupFixture({ delay, data, tab }) {
         await wait();
         return tab ? [tab] : [];
       },
-      async sendMessage() {
+      async sendMessage(tabId, request) {
+        fixtureCalls.push({ type: 'message', tabId, request });
         return { state: 'unsupported', active: false, adapter: '', message: '', loaded: 0, pages: 0, total: null };
       },
     },
@@ -43,6 +44,11 @@ function setupFixture({ delay, data, tab }) {
         async set(values) {
           const changes = Object.fromEntries(Object.entries(values).map(([key, value]) => [key, { oldValue: fixtureData[key], newValue: value }]));
           Object.assign(fixtureData, structuredClone(values));
+          for (const listener of listeners) listener(changes, 'local');
+        },
+        async remove(key) {
+          const changes = { [key]: { oldValue: fixtureData[key] } };
+          delete fixtureData[key];
           for (const listener of listeners) listener(changes, 'local');
         },
       },
@@ -113,6 +119,7 @@ async function main() {
     assert.equal(startup.navigationNodes, 0);
     assert.equal(startup.libraries, 0);
     assert.equal(startup.defaultEnabled, false);
+    assert.equal(await page.locator('#continuousBrowseSiteEnabled').isChecked(), false);
     console.log('Startup:', startup);
 
     await enter(page, 'credential');
@@ -136,8 +143,61 @@ async function main() {
     }
     await page.locator('label:has(#continuousBrowseModuleEnabled)').click();
     assert.equal(await page.evaluate(() => fixtureData.continuousBrowseModuleEnabled), true);
+    assert.equal(await page.evaluate(() => fixtureData.enabledContinuousBrowseSites), undefined);
+    await enter(page, 'continuousBrowse');
+    await page.waitForFunction(() => !popupManager.modules.continuousBrowse.opening);
+    assert.equal(await page.locator('#continuousBrowseSiteEnabled').isChecked(), false);
+    assert.equal(await page.locator('#continuousBrowseStart').isDisabled(), true);
+    assert.equal(await page.evaluate(() => fixtureCalls.filter(call => call.type === 'message').length), 0);
+    assert.ok((await page.locator('#continuousBrowseMessage').textContent()).includes('所有网站默认关闭'));
+    await page.locator('label:has(#continuousBrowseSiteEnabled)').click();
+    await page.waitForFunction(() => !popupManager.modules.continuousBrowse.saving);
+    assert.deepEqual(await page.evaluate(() => fixtureData.enabledContinuousBrowseSites), ['localhost']);
+    assert.ok(await page.locator('#continuousBrowseSiteEnabled').isChecked());
+    await back(page);
+    assert.deepEqual(await page.evaluate(() => fixtureData.enabledContinuousBrowseSites), ['localhost']);
     await page.locator('label:has(#continuousBrowseModuleEnabled)').click();
     assert.equal(await page.evaluate(() => fixtureData.continuousBrowseModuleEnabled), false);
+    assert.deepEqual(await page.evaluate(() => fixtureData.enabledContinuousBrowseSites), ['localhost']);
+    await page.locator('label:has(#continuousBrowseModuleEnabled)').click();
+    await page.evaluate(() => chrome.storage.local.set({ enabledContinuousBrowseSites: ['other.example', 'localhost'] }));
+    await enter(page, 'continuousBrowse');
+    await page.waitForFunction(() => !popupManager.modules.continuousBrowse.opening);
+    assert.ok(await page.locator('#continuousBrowseSiteEnabled').isChecked());
+    await page.locator('label:has(#continuousBrowseSiteEnabled)').click();
+    await page.waitForFunction(() => !popupManager.modules.continuousBrowse.saving);
+    assert.deepEqual(await page.evaluate(() => fixtureData.enabledContinuousBrowseSites), ['other.example']);
+    await page.locator('label:has(#continuousBrowseSiteEnabled)').click();
+    await page.waitForFunction(() => !popupManager.modules.continuousBrowse.saving);
+    await page.evaluate(() => chrome.storage.local.remove('enabledContinuousBrowseSites'));
+    assert.equal(await page.locator('#continuousBrowseSiteEnabled').isChecked(), false);
+    assert.equal(await page.locator('#continuousBrowseStart').isDisabled(), true);
+    await back(page);
+
+    for (const disabledContinuousBrowseSites of [undefined, [], ['localhost']]) {
+      const legacy = await open({ data: { continuousBrowseModuleEnabled: true, disabledContinuousBrowseSites } });
+      assert.equal(await legacy.locator('#continuousBrowseSiteEnabled').isChecked(), false);
+      assert.equal(await legacy.evaluate(() => fixtureData.enabledContinuousBrowseSites), undefined);
+      await legacy.context().close();
+    }
+    for (const hostname of ['localhost', 'other.example', 'sub.localhost']) {
+      const remembered = await open({
+        data: { continuousBrowseModuleEnabled: true, enabledContinuousBrowseSites: ['localhost'] },
+        tab: { id: 1, title: '网站许可', url: 'https://' + hostname + '/' },
+      });
+      assert.equal(await remembered.locator('#continuousBrowseSiteEnabled').isChecked(), hostname === 'localhost');
+      await remembered.context().close();
+    }
+    assert.ok(await page.evaluate(() => GEEK_ALL_DATA_KEYS.includes('enabledContinuousBrowseSites')));
+    assert.equal(await page.evaluate(() => GEEK_ALL_DATA_KEYS.includes('disabledContinuousBrowseSites')), false);
+    await page.evaluate(() => popupManager.doImport({ data: {
+      continuousBrowseModuleEnabled: true, enabledContinuousBrowseSites: ['localhost'],
+    } }, { continuousBrowse: true }));
+    assert.ok(await page.locator('#continuousBrowseSiteEnabled').isChecked());
+    await page.evaluate(() => popupManager.doImport({ data: {
+      continuousBrowseModuleEnabled: true, enabledContinuousBrowseSites: [],
+    } }, { continuousBrowse: true }));
+    assert.equal(await page.locator('#continuousBrowseSiteEnabled').isChecked(), false);
 
     await enter(page, 'qrCodeTool');
     let libraryAttempts = 0;

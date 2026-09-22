@@ -1,6 +1,8 @@
 class ContinuousBrowse extends BaseModule {
   constructor() {
     super('continuousBrowse');
+    this.moduleEnabled = false;
+    this.siteEnabled = false;
     this.status = null;
     this.tabId = null;
     this.pageAvailable = false;
@@ -39,13 +41,13 @@ class ContinuousBrowse extends BaseModule {
     const generation = this.generation;
     const statusRevision = this.statusRevision;
     const result = await chrome.storage.local.get([
-      'continuousBrowseModuleEnabled', 'disabledContinuousBrowseSites', 'globalDisabledSites',
+      'continuousBrowseModuleEnabled', 'enabledContinuousBrowseSites', 'globalDisabledSites',
     ]);
     if (generation !== this.generation) return;
     // 读取期间若有设置变更，重新读取，避免旧快照覆盖 storageListener。
     if (statusRevision !== this.statusRevision) return this.loadSettings();
     this.moduleEnabled = result.continuousBrowseModuleEnabled === true;
-    this.siteEnabled = !(result.disabledContinuousBrowseSites || []).includes(this.currentHostname);
+    this.siteEnabled = (result.enabledContinuousBrowseSites || []).includes(this.currentHostname);
     this.isGloballyDisabled = (result.globalDisabledSites || []).includes(this.currentHostname);
   }
 
@@ -69,11 +71,11 @@ class ContinuousBrowse extends BaseModule {
     this.storageListener = (changes, area) => {
       if (area !== 'local') return;
       const moduleChange = changes.continuousBrowseModuleEnabled;
-      const siteChange = changes.disabledContinuousBrowseSites;
+      const siteChange = changes.enabledContinuousBrowseSites;
       const globalChange = changes.globalDisabledSites;
       if (!moduleChange && !siteChange && !globalChange) return;
       if (moduleChange) this.moduleEnabled = moduleChange.newValue === true;
-      if (siteChange) this.siteEnabled = !(siteChange.newValue || []).includes(this.currentHostname);
+      if (siteChange) this.siteEnabled = (siteChange.newValue || []).includes(this.currentHostname);
       if (globalChange) this.isGloballyDisabled = (globalChange.newValue || []).includes(this.currentHostname);
       // 丢弃旧会话及在途响应；自动启动完全由 content 根据设置控制。
       this.resetStatus();
@@ -105,6 +107,17 @@ class ContinuousBrowse extends BaseModule {
       this.updateUI();
       if (this.isOpen && this.isEnabled()) this.sendCommand('status');
     }
+  }
+
+  async toggleSiteEnabled(enabled) {
+    if (!this.pageAvailable || !this.currentHostname) return;
+    const key = 'enabledContinuousBrowseSites';
+    const result = await chrome.storage.local.get([key]);
+    const sites = (result[key] || []).filter(site => site !== this.currentHostname);
+    if (enabled) sites.push(this.currentHostname);
+    await chrome.storage.local.set({ [key]: sites });
+    this.siteEnabled = enabled;
+    Toast.success(enabled ? '连续浏览已在本网站启用' : '连续浏览已在本网站关闭');
   }
 
   getModuleName() {
@@ -264,8 +277,8 @@ class ContinuousBrowse extends BaseModule {
     if (!this.isEnabled()) {
       label = '连续浏览已禁用';
       message = this.isGloballyDisabled ? '扩展已在本网站全局禁用，请先启用扩展。'
-        : !this.moduleEnabled ? '请返回模块列表启用连续浏览；支持且未关闭的网站将自动运行。'
-          : '已关闭本站并恢复原分页，刷新或下次访问仍保持关闭。重新打开“当前网站启用”开关后，支持的页面将自动运行。';
+        : !this.moduleEnabled ? '请先在模块列表启用连续浏览，再手动开启当前网站；其他网站仍默认关闭。'
+          : '本站未启用连续浏览。所有网站默认关闭，打开“当前网站启用”后才会运行，并记住该域名。';
     }
     setText('State', label);
     setText('Adapter', this.connectionMessage ? '—' : status?.adapter || '—');
