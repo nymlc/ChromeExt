@@ -39,7 +39,8 @@ class ContinuousBrowse extends BaseContentModule {
   }
 
   detect() {
-    return ContinuousBrowseYApiAdapter.detect() || ContinuousBrowseTableAdapter.detect() || ContinuousBrowseHtmlAdapter.detect();
+    return ContinuousBrowseYApiAdapter.detect() || ContinuousBrowseTableAdapter.detect()
+      || ContinuousBrowseClickAdapter.detect() || ContinuousBrowseHtmlAdapter.detect();
   }
 
   _onMessage(request, _sender, sendResponse) {
@@ -72,8 +73,9 @@ class ContinuousBrowse extends BaseContentModule {
       this._autoStartBlocked = false;
       this.stop();
       this.start();
-    } else if (['resume', 'retry'].includes(command) && this.adapter && ['paused', 'error'].includes(this.state)) {
-      this.state = 'running';
+    } else if (['resume', 'retry'].includes(command) && this.adapter && !this._interaction && ['paused', 'error'].includes(this.state)) {
+      if (this.adapter.handlesMutations) this.adapter.hide();
+      this.state = this.adapter.nextUrl ? 'running' : 'done';
       this.message = '';
       this._autoPages = 0;
       if (!this._request) this._observe();
@@ -104,6 +106,7 @@ class ContinuousBrowse extends BaseContentModule {
       return;
     }
     this.adapter = adapter;
+    adapter.hide?.();
     this.state = adapter.nextUrl ? 'running' : 'done';
     this.message = '';
     this.pages = 1;
@@ -111,7 +114,7 @@ class ContinuousBrowse extends BaseContentModule {
     this._pageUrl = location.href;
     this._session++;
     this._mount();
-    if (!adapter.interactive) {
+    if (!adapter.interactive && !adapter.handlesMutations) {
       this._mutationObserver = new MutationObserver(() => {
         this.stop('原页面内容已变化，正在重新检测');
         this._scheduleAutoStart();
@@ -125,10 +128,16 @@ class ContinuousBrowse extends BaseContentModule {
   _mount() {
     const host = document.createElement('div');
     host.dataset.geekContinuousBrowse = 'true';
+    if (this.adapter.handlesMutations) host.classList.add('native-snapshot');
+    if (this.adapter.viewportHeight) {
+      host.style.height = `${this.adapter.viewportHeight}px`;
+      host.style.overflow = 'auto';
+    }
     const anchor = this.adapter.element.closest('table') || this.adapter.element;
     if (this.adapter.mountTarget) this.adapter.mountTarget.appendChild(host);
     else anchor.after(host);
     this._host = host;
+    this.adapter.bindHost?.(host, action => this._interact(action));
     const root = host.attachShadow({ mode: 'open' });
     const style = document.createElement('style');
     style.textContent = `
@@ -141,6 +150,10 @@ class ContinuousBrowse extends BaseContentModule {
       table { width: 100%; border-collapse: collapse; font-size: 13px; }
       th, td { padding: 12px 10px; border-bottom: 1px solid #eee; text-align: left; overflow-wrap: anywhere; min-width: 70px; }
       th { background: #fafafa; white-space: nowrap; } td:first-child { min-width: 140px; }
+      /* 副本行会触发原站操作，需要给出可点击反馈；原单元格常带内联底色，故用 !important 覆盖。 */
+      [data-geek-row] { cursor: pointer; }
+      [data-geek-row]:hover, [data-geek-row]:hover > td, [data-geek-row]:hover > th { background-color: #f5faff !important; }
+      [data-geek-row]:active, [data-geek-row]:active > td, [data-geek-row]:active > th { background-color: #e8f1ff !important; }
       li { margin: 8px 0; } pre { white-space: pre-wrap; overflow-wrap: anywhere; }
       .controls { position: fixed; bottom: 16px; right: 16px; z-index: 2147483646; width: 300px; max-width: calc(100vw - 32px); padding: 12px; border: 1px solid #dbe3ee; border-radius: 12px; background: #fff; box-shadow: 0 4px 20px #0002; font-size: 12px; }
       .title { font-weight: 600; font-size: 13px; } .status { margin: 4px 0 8px; overflow-wrap: anywhere; }
@@ -151,9 +164,9 @@ class ContinuousBrowse extends BaseContentModule {
     root.appendChild(style);
     const note = document.createElement('p');
     note.className = 'note';
-    note.textContent = this.adapter.interactive
+    note.textContent = this.adapter.note || (this.adapter.interactive
       ? '连续浏览 · 保留原表格交互；点击行内业务操作时自动恢复该行所在分页，筛选或刷新后重新检测。'
-      : '连续浏览 · 追加内容为只读，编辑请恢复原分页；详情链接在新标签页打开。';
+      : '连续浏览 · 追加内容为只读，编辑请恢复原分页；详情链接在新标签页打开。');
     root.appendChild(note);
     this._content = document.createElement('div');
     root.appendChild(this._content);
@@ -187,12 +200,6 @@ class ContinuousBrowse extends BaseContentModule {
     buttons.append(this._toggleButton, stop);
     controls.appendChild(buttons);
     root.appendChild(controls);
-    this._hidden = [];
-    for (const element of [this.adapter.hideOriginal && this.adapter.element, this.adapter.pager]) {
-      if (!element || element.tagName === 'LINK') continue;
-      this._hidden.push([element, element.style.getPropertyValue('display'), element.style.getPropertyPriority('display')]);
-      element.style.setProperty('display', 'none', 'important');
-    }
   }
 
   _append(fragment, page) {
@@ -204,6 +211,7 @@ class ContinuousBrowse extends BaseContentModule {
   }
 
   _scrollRoot() {
+    if (this.adapter?.viewportHeight) return this._host;
     for (let element = this._host.parentElement; element && element !== document.body && element !== document.documentElement; element = element.parentElement) {
       if (/(auto|scroll)/.test(getComputedStyle(element).overflowY) && element.scrollHeight > element.clientHeight) return element;
     }
@@ -219,9 +227,40 @@ class ContinuousBrowse extends BaseContentModule {
     this._observer.observe(this._sentinel);
   }
 
+  async _interact(action) {
+    if (!this.adapter || this._interaction) return;
+    this._observer?.disconnect();
+    this.state = 'paused';
+    if (this._request) {
+      this.message = '正在完成翻页，已暂停后续加载，请稍后再次点击';
+      this._render();
+      return;
+    }
+    const session = this._session;
+    const controller = new AbortController();
+    this._interaction = controller;
+    this.message = '正在恢复记录所在分页，请稍候';
+    this._render();
+    try {
+      await action(controller.signal);
+      if (session !== this._session) return;
+      this.message = '已在原分页触发操作，连续加载已暂停';
+    } catch (error) {
+      if (session !== this._session) return;
+      this.state = 'error';
+      this._autoStartBlocked = !!this.adapter.invalid || error.name === 'AbortError';
+      this.message = error.name === 'AbortError' ? '恢复分页已取消，请重试' : error.message;
+    } finally {
+      if (session === this._session) {
+        this._interaction = null;
+        this._render();
+      }
+    }
+  }
+
   async _load() {
     this._checkContext();
-    if (this.state !== 'running' || this._request || !this.adapter?.nextUrl) return;
+    if (this.state !== 'running' || this._request || this._interaction || !this.adapter?.nextUrl) return;
     const session = this._session;
     const adapter = this.adapter;
     const controller = new AbortController();
@@ -229,7 +268,7 @@ class ContinuousBrowse extends BaseContentModule {
     this._observer?.disconnect();
     this.state = 'loading';
     this._render();
-    const timer = setTimeout(() => controller.abort(), 15000);
+    const timer = adapter.handlesMutations ? null : setTimeout(() => controller.abort(), 15000);
     try {
       const fragment = await adapter.load(controller.signal);
       this._checkContext();
@@ -247,7 +286,7 @@ class ContinuousBrowse extends BaseContentModule {
     } catch (error) {
       if (session !== this._session) return;
       this.state = 'error';
-      if (adapter.interactive && (error.name === 'AbortError' || !adapter.isCurrent())) this._autoStartBlocked = true;
+      if ((adapter.interactive || adapter.handlesMutations) && (error.name === 'AbortError' || !adapter.isCurrent())) this._autoStartBlocked = true;
       this.message = error.name === 'AbortError' ? '加载超时，请重试' : error.message || '加载失败，请重试';
     } finally {
       clearTimeout(timer);
@@ -264,8 +303,11 @@ class ContinuousBrowse extends BaseContentModule {
     const labels = { running: '滚动到底部加载下一页', loading: '正在加载下一页', paused: '已暂停', error: '加载失败', done: '已到最后一页' };
     const count = this.adapter.total === null ? `${this.adapter.loaded}` : `${this.adapter.loaded}/${this.adapter.total}`;
     this._statusEl.textContent = `已加载 ${count} 条 · ${this.pages} 页 · ${this.message || labels[this.state]}`;
-    this._toggleButton.textContent = this.state === 'paused' ? '继续' : this.state === 'error' ? '重试' : '暂停';
-    this._toggleButton.disabled = this.state === 'done';
+    const busy = !!this._interaction;
+    this._toggleButton.textContent = busy ? '恢复分页中…'
+      : this.state === 'done' ? '已完成'
+      : this.state === 'paused' ? '继续' : this.state === 'error' ? '重试' : '暂停';
+    this._toggleButton.disabled = busy || this.state === 'done';
   }
 
   _checkContext(event) {
@@ -281,12 +323,21 @@ class ContinuousBrowse extends BaseContentModule {
       this._scheduleAutoStart();
     }
     if (this._pageHidden) return;
+    // 同一路径下的详情抽屉不应清除已累积的分页。
+    if (this.adapter && this._host?.isConnected
+      && typeof this.adapter.contentIntact === 'function' && this.adapter.contentIntact()) {
+      if (location.href !== this._pageUrl) {
+        this._pageUrl = location.href;
+        this.adapter.url = location.href;
+      }
+      return;
+    }
     if (location.href !== this._pageUrl || (this.adapter
       && (!this.adapter.element.isConnected || !this._host?.isConnected
         || (!this._autoStartBlocked && this.adapter.isCurrent && !this.adapter.isCurrent())))) {
-      this._autoStartBlocked = false;
+      this._autoStartBlocked = !!(this.adapter?.handlesMutations && (this._request || this._interaction) && location.href === this._pageUrl);
       this._pageUrl = location.href;
-      this.stop('页面已变化，正在重新检测');
+      this.stop(this._autoStartBlocked ? '页面在翻页期间变化，请等待原站加载完成后重试' : '页面已变化，正在重新检测');
       this._scheduleAutoStart();
     }
   }
@@ -297,15 +348,12 @@ class ContinuousBrowse extends BaseContentModule {
     this._session++;
     this._request?.abort();
     this._request = null;
+    this._interaction?.abort();
+    this._interaction = null;
     this._observer?.disconnect();
     this._mutationObserver?.disconnect();
     this.adapter?.destroy?.();
     this._host?.remove();
-    for (const [element, display, priority] of this._hidden || []) {
-      if (display) element.style.setProperty('display', display, priority);
-      else element.style.removeProperty('display');
-    }
-    this._hidden = [];
     this._host = null;
     this._content = null;
     this._statusEl = null;

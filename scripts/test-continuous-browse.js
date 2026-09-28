@@ -890,10 +890,964 @@ const tableFixture = url => `<!doctype html><html lang="zh-CN"><meta charset="UT
 <div id="detail" class="el-drawer" role="dialog" hidden><h2>原生详情</h2><button id="closeDetail">关闭</button></div>
 ${url.searchParams.has('extension') ? '' : scripts.map(src => `<script src="${src}"></script>`).join('')}<script>(${setupTableFixture.toString()})(${url.searchParams.get('mode') === 'client'},${JSON.stringify({ mode: url.searchParams.get('mode') === 'watcher' ? 'watcher' : '' })})</script></html>`;
 
+// Serialized into /click: pagination state and the asynchronous loader stay private.
+function setupClickFixture(options) {
+  const scope = document.querySelector('#click-scope');
+  const query = document.querySelector('#click-query');
+  const apply = document.querySelector('#click-filter');
+  const result = document.querySelector('#click-result');
+  const runButton = document.querySelector('#click-test');
+  const drawer = document.querySelector('#click-detail');
+  const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+  let mode, element, pager, current, next, prev, page, busy, keyword, presentation, detailUrl, revision = 0;
+  const closeDetail = () => {
+    drawer.hidden = true;
+    if (detailUrl !== undefined) {
+      history.replaceState(history.state, '', detailUrl);
+      detailUrl = undefined;
+      window.dispatchEvent(new Event('hashchange'));
+    }
+  };
+  document.querySelector('#click-close-detail').onclick = closeDetail;
+  const controls = window.clickFixture = {
+    behavior: options.behavior, delay: options.delay, clicks: [], requests: [], edits: [], submits: 0,
+    get element() { return element; }, get pager() { return pager; },
+    get next() { return next; }, get prev() { return prev; },
+    get page() { return page; }, get busy() { return busy; },
+    get pending() { return this.requests.filter(request => !request.completed).length; },
+  };
+  const rows = target => target === 1 ? [1, 2, 3] : target === 2 ? [3, 4, 5] : target === 4 ? [8, 9] : [6, 7];
+  // Optional keyed-in-place rendering retains both rows and their button nodes.
+  const patch = (target, source) => {
+    if (target.nodeType !== Node.ELEMENT_NODE) { target.textContent = source.textContent; return; }
+    for (const attr of [...target.attributes]) if (!source.hasAttribute(attr.name)) target.removeAttribute(attr.name);
+    for (const attr of source.attributes) target.setAttribute(attr.name, attr.value);
+    while (target.childNodes.length > source.childNodes.length) target.lastChild.remove();
+    [...source.childNodes].forEach((child, index) => {
+      const previous = target.childNodes[index];
+      if (!previous) target.append(child.cloneNode(true));
+      else if (previous.nodeType !== child.nodeType || previous.nodeName !== child.nodeName) previous.replaceWith(child.cloneNode(true));
+      else patch(previous, child);
+    });
+  };
+  function render(ids) {
+    const target = element.tagName === 'TABLE' ? element.tBodies[0] : element;
+    const previous = [...target.children];
+    const rendered = ids.map((value, index) => {
+      const id = value + (keyword ? 100 : 0);
+      let row = document.createElement(element.tagName === 'TABLE' ? 'tr' : ['UL', 'OL'].includes(element.tagName) ? 'li' : 'div');
+      row.dataset.rowKey = id;
+      if (mode === 'role-list' || mode === 'grid') row.setAttribute('role', mode === 'grid' ? 'row' : 'listitem');
+      const cells = presentation ? [
+        '<input type="checkbox" aria-label="选择记录">',
+        // No image src: dimensions must come from computed CSS, not network/intrinsic sizing.
+        `<div class="click-title"><img class="click-avatar" alt="负责人头像"><a class="click-title-link" href="/record/${id}">这是用于验证宽标题列与单行省略的很长项目任务标题，不能被压缩成七十像素，条目 ${id}</a></div>`,
+        `<fixture-column><em>自定义值-${id}</em></fixture-column><button type="button" data-action="edit">编辑</button><button type="button" data-action="inspect">查看</button>`,
+        `<span id="click-badge-${id}" class="click-badge ${page === 1 ? 'click-active' : 'click-blocked'}" onclick="window.clickFixtureInjected=true" style="position:relative;top:3px;background-image:url('#click-fixture-paint')">${page === 1 ? '进行中' : '已阻塞'}</span>`
+          + '<scr' + 'ipt>window.clickFixtureInjected=true;</scr' + 'ipt>',
+      ] : [
+        `<a href="/record/${id}">${keyword ? keyword + ' ' : ''}条目 ${id}</a><p>记录正文 ${id}</p>`,
+        `<fixture-column><em>自定义值-${id}</em></fixture-column>`,
+        '<input type="checkbox"><input value="原生输入"><textarea>原生备注</textarea><select><option>原生选项</option></select><button type="button" data-action="edit">原生编辑</button><button type="button" data-action="inspect">原生查看</button>',
+        // innerHTML keeps this source script inert; the copy must remove it, not execute it.
+        '<scr' + 'ipt>window.clickFixtureInjected=true;</scr' + 'ipt><span onclick="window.clickFixtureInjected=true">事件文本</span><a href="javascript:window.clickFixtureInjected=true">危险链接</a><b contenteditable="true">可编辑文本</b>',
+      ];
+      for (const html of cells) {
+        const cell = document.createElement(element.tagName === 'TABLE' ? 'td' : 'div');
+        if (mode === 'grid') cell.setAttribute('role', 'gridcell');
+        cell.innerHTML = html;
+        row.append(cell);
+      }
+      controls.mutateRow?.(row, { id, page });
+      if (controls.reuseRows && previous[index]) {
+        patch(previous[index], row);
+        row = previous[index];
+      }
+      return row;
+    });
+    if (!controls.reuseRows) target.replaceChildren(...rendered);
+    else {
+      while (target.children.length > rendered.length) target.lastElementChild.remove();
+      rendered.forEach((row, index) => { if (target.children[index] !== row) target.append(row); });
+    }
+  }
+  function paintPager() {
+    current.textContent = page;
+    element.setAttribute('aria-busy', String(busy));
+    for (const button of pager.querySelectorAll('[data-fixture-page]')) button.disabled = busy || Number(button.dataset.fixturePage) === page;
+    for (const [button, disabled] of [[prev, page === 1 || busy], [next, page === controls.maxPage || busy]]) {
+      button.disabled = disabled;
+      button.setAttribute('aria-disabled', String(disabled));
+      if (mode === 'antd') {
+        button.parentElement.classList.toggle('ant-pagination-disabled', disabled);
+        button.parentElement.setAttribute('aria-disabled', String(disabled));
+      }
+    }
+  }
+  async function requestPage(target, filter = false) {
+    const token = ++revision;
+    const behavior = controls.behavior;
+    const request = { page: target, keyword, filter, failed: behavior === 'fail', completed: false, applied: false, stage: false };
+    controls.requests.push(request);
+    page = target; // Deliberately ahead of the content, just like native async pagers.
+    busy = true;
+    paintPager();
+    await delay(behavior === 'slow' ? Math.max(600, controls.delay) : controls.delay);
+    if (token === revision && !request.failed) {
+      const ids = behavior === 'duplicate' && !filter ? rows(1) : rows(target);
+      if (behavior === 'staged') {
+        render(ids.slice(0, 2));
+        request.stage = true;
+        await delay(100);
+      }
+      if (token === revision) { render(ids); request.applied = true; }
+    }
+    // Content arrives before aria-busy clears; consumers must wait for stability.
+    await delay(35);
+    if (token === revision) { busy = false; paintPager(); }
+    request.completed = true;
+  }
+  function reset({ mode: nextMode = options.mode, behavior = 'normal', delay: latency = 100,
+    reuseRows = false, maxPage = 3, numbered = false, hashDetails = false, mutateRow = null } = {}) {
+    revision++;
+    closeDetail();
+    mode = nextMode;
+    page = 1;
+    busy = false;
+    keyword = '';
+    query.value = '';
+    Object.assign(controls, { behavior, delay: latency, reuseRows, maxPage, hashDetails, mutateRow,
+      clicks: [], requests: [], edits: [], submits: 0 });
+    element = document.createElement(mode === 'list' ? 'ul' : mode === 'ol' ? 'ol' : ['role-list', 'grid'].includes(mode) ? 'div' : 'table');
+    if (mode === 'role-list' || mode === 'grid') element.setAttribute('role', mode === 'grid' ? 'grid' : 'list');
+    if (element.tagName === 'TABLE') {
+      element.innerHTML = '<thead><tr><th>记录</th><th>任意自定义列</th><th>业务编辑</th><th>安全内容</th></tr></thead><tbody></tbody>';
+      element.className = mode === 'fusion' ? 'next-table' : mode === 'antd' ? 'ant-table' : '';
+    }
+    element.style.setProperty('display', element.tagName === 'TABLE' ? 'table' : 'block', 'important');
+    // Only the live table/list delegates business operations. Detached old rows have no handler.
+    element.addEventListener('click', event => {
+      const button = event.target.closest('button[data-action]');
+      const row = button?.closest('[data-row-key]');
+      if (!row || !element.contains(row)) return;
+      const id = Number(row.dataset.rowKey);
+      controls.edits.push({ id, page, action: button.dataset.action, connected: button.isConnected,
+        visible: button.getClientRects().length > 0 && getComputedStyle(element).display !== 'none' });
+      if (controls.hashDetails && button.dataset.action === 'inspect') {
+        detailUrl = location.href;
+        drawer.hidden = false;
+        location.hash = 'click-detail-' + id;
+      }
+    });
+    pager = document.createElement(mode === 'antd' ? 'ul' : mode === 'fusion' ? 'div' : 'nav');
+    if (mode === 'fusion') {
+      pager.className = 'next-pagination';
+      pager.innerHTML = '<button type="button" class="next-prev">‹</button><button type="button" class="next-current">1</button><button type="button" class="next-next">›</button>';
+      current = pager.querySelector('.next-current');
+      next = pager.querySelector('.next-next');
+      prev = pager.querySelector('.next-prev');
+    } else if (mode === 'antd') {
+      pager.className = 'ant-pagination';
+      pager.innerHTML = '<li class="ant-pagination-prev"><button type="button">‹</button></li><li class="ant-pagination-item ant-pagination-item-active">1</li><li class="ant-pagination-next"><button type="button">›</button></li>';
+      current = pager.querySelector('.ant-pagination-item-active');
+      next = pager.querySelector('.ant-pagination-next button');
+      prev = pager.querySelector('.ant-pagination-prev button');
+    } else {
+      pager.className = 'pagination';
+      pager.setAttribute('aria-label', '分页');
+      pager.innerHTML = '<button type="button" aria-label="previous">‹</button><span aria-current="page">1</span><button type="button" aria-label="next">›</button>';
+      current = pager.querySelector('[aria-current]');
+      next = pager.querySelector('[aria-label="next"]');
+      prev = pager.querySelector('[aria-label="previous"]');
+    }
+    pager.style.setProperty('display', 'flex', 'important');
+    for (const [button, direction] of [[next, 1], [prev, -1]]) {
+      button.addEventListener('click', () => {
+        controls.clicks.push({ direction, page });
+        if (controls.behavior !== 'noop' && !busy) void requestPage(page + direction);
+      });
+    }
+    if (numbered) for (let target = 1; target <= maxPage; target++) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = target;
+      button.dataset.fixturePage = target;
+      button.addEventListener('click', () => {
+        controls.clicks.push({ target, page });
+        if (controls.behavior !== 'noop' && !busy) void requestPage(target);
+      });
+      pager.append(button);
+    }
+    scope.replaceChildren(element, pager);
+    render(rows(1));
+    paintPager();
+    window.clickFixtureInjected = false;
+  }
+  controls.reset = reset; // Only test controls are exposed, never the native loader/state.
+  apply.addEventListener('click', () => {
+    keyword = query.value;
+    void requestPage(1, true);
+  });
+  reset(options);
+
+  window.fixtureData = {}; // Both the module and this site are closed by default.
+  window.chrome = { runtime: { onMessage: { addListener() {}, removeListener() {} } }, storage: { local: {
+    async get() { return { ...window.fixtureData }; },
+    async set(values) { Object.assign(window.fixtureData, values); },
+  } } };
+  const initModule = async () => {
+    window.browserModule?.destroy();
+    window.browserModule = new ContinuousBrowse();
+    window.browserReady = browserModule.init();
+    await browserReady;
+  };
+  const authorize = async () => {
+    await chrome.storage.local.set({ continuousBrowseModuleEnabled: true, enabledContinuousBrowseSites: [location.hostname] });
+    await initModule(); // Exercise init's automatic discovery, not a stubbed start/detect.
+  };
+  document.querySelector('#click-start').onclick = authorize;
+  for (const command of ['pause', 'resume', 'stop']) {
+    document.querySelector('#click-' + command).onclick = () => browserModule.command(command);
+  }
+  initModule();
+  let running = false;
+  window.runClickRegression = async ({ scroll = false, interactionOnly = false } = {}) => {
+    if (running) throw new Error('按钮分页回归已在运行');
+    running = true;
+    runButton.disabled = true;
+    const checks = [], adapters = new Set(), controllers = new Set();
+    const originalFetch = window.fetch, originalOpen = XMLHttpRequest.prototype.open;
+    let networkCalls = 0;
+    const forbidNetwork = () => { networkCalls++; throw new Error('按钮分页不得猜测 URL 或调用 API'); };
+    const assert = (name, pass) => { checks.push({ name, pass: !!pass }); if (!pass) throw new Error(name); };
+    const ids = root => [...root.querySelectorAll('a[href]')].map(link => link.textContent.match(/条目 (\d+)$/)?.[1]).filter(Boolean).join();
+    const host = () => document.querySelector('[data-geek-continuous-browse]');
+    const copies = () => host()?.shadowRoot;
+    const copyIds = root => [...(root?.querySelectorAll('section') || [])].map(ids).filter(Boolean).join();
+    const style = node => [node.style.getPropertyValue('display'), node.style.getPropertyPriority('display')].join('|');
+    const silence = () => browserModule._observer?.disconnect();
+    const waitFor = async (test, message = '按钮分页状态超时', timeout = 3000) => {
+      const end = Date.now() + timeout;
+      while (!test()) { if (Date.now() > end) throw new Error(message); await delay(10); }
+    };
+    const bounded = async (promise, timeout = 3500) => {
+      let timer;
+      try {
+        return await Promise.race([promise, new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error('按钮分页操作未及时结束')), timeout);
+        })]);
+      } finally { clearTimeout(timer); }
+    };
+    const settle = () => waitFor(() => !controls.pending && !controls.busy, '原生请求未完成');
+    const prepare = async (nextMode = options.mode, behavior = 'normal', latency = 100, fixtureOptions = {}) => {
+      browserModule.destroy();
+      await settle();
+      reset({ ...fixtureOptions, mode: nextMode, behavior, delay: latency });
+      window.scrollTo(0, 0);
+      window.fixtureData = {};
+      await initModule();
+      silence();
+    };
+    const test = async (name, run, interaction = false) => {
+      if (interactionOnly && !interaction) return;
+      try { await run(); } catch (error) { checks.push({ test: name, error: error.message }); }
+      finally {
+        for (const controller of controllers) controller.abort();
+        for (const adapter of adapters) adapter.destroy();
+        adapters.clear();
+        browserModule.destroy();
+        closeDetail();
+        try { await settle(); } catch (error) { checks.push({ test: name + ' cleanup', error: error.message }); }
+      }
+    };
+    const interactionTest = (name, run) => test(name, run, true);
+    const assertClean = (root, expected) => {
+      assert('净化脚本、输入及业务编辑控件', !root.querySelector('script,iframe,object,embed,input,textarea,select,button,form,[contenteditable]'));
+      assert('净化所有事件属性和 JS href', [...root.querySelectorAll('*')].every(node => [...node.attributes].every(attr =>
+        !/^on/i.test(attr.name) && (attr.name !== 'href' || !/^javascript:/i.test(attr.value.replace(/[\s\u0000-\u001f]/g, ''))))));
+      assert('未知自定义列保留可读文本而非自定义组件', !root.querySelector('fixture-column')
+        && expected.split(',').every(id => root.textContent.includes('自定义值-' + id)));
+      assert('副本未执行脚本或事件', !window.clickFixtureInjected);
+    };
+    const direct = async (nextMode, behavior = 'normal') => {
+      await prepare(nextMode, behavior);
+      const adapter = ContinuousBrowseClickAdapter.detect();
+      assert(nextMode + ' detect 返回通用只读适配器', adapter?.name === '通用按钮分页（只读）');
+      adapters.add(adapter);
+      assert(nextMode + ' 声明自管隐藏与变更、非原生编辑', adapter.hideOriginal === false && adapter.handlesMutations === true && !adapter.interactive);
+      assert(nextMode + ' start 成功', adapter.start() !== false);
+      const root = document.createElement('div');
+      const initial = adapter.initial();
+      assert(nextMode + ' initial 提供脱离原 DOM 的副本', !!initial && initial !== element && !element.contains(initial));
+      root.append(initial);
+      assert(nextMode + ' 首屏三条且没有原生请求', ids(root) === '1,2,3' && adapter.loaded === 3 && controls.clicks.length === 0 && adapter.isCurrent());
+      return { adapter, root };
+    };
+    const request = (adapter, abortAfter = 2200) => {
+      const controller = new AbortController();
+      controllers.add(controller);
+      let settled = false;
+      const timer = setTimeout(() => controller.abort(), abortAfter);
+      // Catch immediately, including failure cases tested before awaiting their result.
+      const promise = bounded(Promise.resolve().then(() => adapter.load(controller.signal)), abortAfter + 600)
+        .then(fragment => ({ fragment }), error => ({ error })).finally(() => {
+          settled = true;
+          clearTimeout(timer);
+          controllers.delete(controller);
+        });
+      return { controller, promise, get settled() { return settled; } };
+    };
+    const prepareInteraction = async (fixtureOptions = {}) => {
+      await prepare(fixtureOptions.mode || 'semantic', 'normal', 50, fixtureOptions);
+      await authorize();
+      silence();
+      assert('交互测试经显式授权自动开启真实 ClickAdapter', browserModule.adapter instanceof ContinuousBrowseClickAdapter
+        && browserModule.pages === 1 && browserModule.adapter.loaded === 3);
+      const interact = browserModule._interact;
+      assert('主模块提供真实 _interact 入口', typeof interact === 'function');
+      const calls = [];
+      // Observe promises/signals only; the real module still controls pause, concurrency and cancellation.
+      browserModule._interact = function (action) {
+        const call = { started: false, finished: false };
+        calls.push(call);
+        const promise = interact.call(this, async signal => {
+          call.started = true;
+          call.signal = signal;
+          try { return await action(signal); }
+          catch (error) { call.error = error; throw error; }
+          finally { call.finished = true; }
+        });
+        call.promise = Promise.resolve(promise);
+        call.promise.catch(() => {});
+        return promise;
+      };
+      return calls;
+    };
+    const copyControl = (id, text = '原生查看') => {
+      const link = [...copies().querySelectorAll('section a[href]')].find(link => new URL(link.href).pathname === '/record/' + id);
+      const row = link?.closest('tr');
+      const control = [...(row?.querySelectorAll('span') || [])].find(span => span.textContent === text);
+      assert('副本操作仍净化为 span：' + id + ' / ' + text, !!control && !row.querySelector('button'));
+      return control;
+    };
+    const clickCopy = (calls, id, text) => {
+      const before = calls.length;
+      copyControl(id, text).click();
+      assert('副本 click 恰好经过一次主模块交互入口', calls.length === before + 1);
+      return calls.at(-1);
+    };
+    const finishInteraction = async (call, rejected = false) => {
+      await bounded(call.promise, 6000);
+      await settle();
+      assert(rejected ? '真实 activate 明确拒绝操作' : '真实 activate 完成操作', call.started && call.finished && !!call.error === rejected);
+    };
+    const loadThrough = async target => {
+      while (browserModule.pages < target) {
+        const before = browserModule.pages;
+        await bounded(browserModule._load(), 6000);
+        silence();
+        assert('逐页加载只增加一页', browserModule.pages === before + 1);
+      }
+    };
+    const savedCopies = () => ({
+      adapter: browserModule.adapter, host: host(), root: copies(), session: browserModule._session,
+      pages: browserModule.pages, loaded: browserModule.adapter.loaded, highest: browserModule.adapter.page,
+      ids: copyIds(copies()), sections: [...copies().querySelectorAll('section')].map(node => ({ node, html: node.innerHTML })),
+    });
+    const unchangedCopies = saved => copyIds(saved.root) === saved.ids
+      && saved.root.querySelectorAll('section').length === saved.sections.length
+      && saved.sections.every(({ node, html }, index) => saved.root.querySelectorAll('section')[index] === node && node.innerHTML === html);
+    const assertPreserved = saved => assert('同一会话保留全部副本节点、内容、条数和最高已加载页',
+      browserModule.adapter === saved.adapter && host() === saved.host && saved.host.isConnected
+      && browserModule._session === saved.session && browserModule.pages === saved.pages
+      && saved.adapter.loaded === saved.loaded && saved.adapter.page === saved.highest && unchangedCopies(saved));
+    const assertEdit = (id, page, action = 'inspect', count = 1) => {
+      const edit = controls.edits.at(-1);
+      assert('只执行指定原按钮且业务看到正确 id/page/action：' + id + '/' + page + '/' + action,
+        controls.edits.length === count && edit.id === id && edit.page === page && edit.action === action
+        && edit.connected && edit.visible);
+    };
+    try {
+      await browserReady;
+      window.fetch = forbidNetwork;
+      XMLHttpRequest.prototype.open = forbidNetwork;
+      assert('现有 scripts 清单导出 ContinuousBrowseClickAdapter.detect', typeof ContinuousBrowseClickAdapter !== 'undefined'
+        && typeof ContinuousBrowseClickAdapter.detect === 'function');
+      await test('授权、暂停、异步累积、关闭及原生交互', async () => {
+        await prepare();
+        for (const settings of [{}, { continuousBrowseModuleEnabled: true }, { enabledContinuousBrowseSites: [location.hostname] }]) {
+          window.fixtureData = settings;
+          await initModule();
+          await browserModule.command('start');
+          assert('缺少任一显式许可均默认关闭', !browserModule.adapter && !host() && controls.clicks.length === 0);
+        }
+        const original = element, originalPager = pager, beforeStyle = style(element), pagerStyle = style(pager);
+        await authorize();
+        silence();
+        const adapter = browserModule.adapter;
+        assert('显式许可后 init 自动识别通用按钮分页', adapter?.name === '通用按钮分页（只读）' && browserModule.pages === 1);
+        assert('原内容及分页隐藏，副本是只读', !adapter.hideOriginal && adapter.handlesMutations && !adapter.interactive
+          && getComputedStyle(element).display === 'none' && getComputedStyle(pager).display === 'none');
+        assert('首屏复制三条', copyIds(copies()) === '1,2,3');
+        assertClean(copies().querySelector('section'), '1,2,3');
+        const firstCopy = copies().querySelector('section'), firstHTML = firstCopy.innerHTML;
+        await browserModule.command('pause');
+        await browserModule._load();
+        await delay(150);
+        assert('暂停不点击且无请求', controls.clicks.length === 0 && controls.requests.length === 0 && browserModule.pages === 1);
+        await browserModule.command('resume');
+        silence();
+        const loading = browserModule._load(), duplicate = browserModule._load();
+        await waitFor(() => controls.busy);
+        assert('并发触发只点一次，页码先变且原内容尚未变', controls.page === 2 && ids(element) === '1,2,3'
+          && controls.clicks.length === 1 && controls.requests.length === 1);
+        assert('页码提前变化不复制旧页或计为成功', copyIds(copies()) === '1,2,3' && browserModule.pages === 1 && adapter.loaded === 3);
+        await bounded(Promise.all([loading, duplicate]));
+        silence();
+        assert('原生变化不误退出，重叠记录只保留一次', browserModule.adapter === adapter && adapter.isCurrent()
+          && browserModule.pages === 2 && adapter.loaded === 5 && copyIds(copies()) === '1,2,3,4,5'
+          && ids(element) === '3,4,5' && !controls.busy && controls.requests.length === 1 && firstCopy.innerHTML === firstHTML);
+        for (const section of copies().querySelectorAll('section')) assertClean(section, ids(section));
+        await bounded(browserModule._load());
+        silence();
+        assert('第三页末页禁用且累计七条', browserModule.state === 'done' && browserModule.pages === 3 && adapter.loaded === 7
+          && !adapter.nextUrl && controls.next.disabled && copyIds(copies()) === '1,2,3,4,5,6,7' && ids(element) === '6,7');
+        await browserModule._load();
+        assert('末页不再点击', controls.clicks.length === 2 && controls.requests.length === 2);
+        const lastHTML = element.innerHTML, nativeEdit = element.querySelector('button'), nativeInput = element.querySelector('input');
+        await browserModule.command('stop');
+        assert('关闭保留原 DOM、最后一页和 display 优先级，不偷点第一页', !host() && !browserModule.adapter && !adapter.isCurrent()
+          && element === original && pager === originalPager && element.innerHTML === lastHTML && controls.page === 3
+          && style(element) === beforeStyle && style(pager) === pagerStyle && controls.clicks.length === 2 && controls.requests.length === 2);
+        nativeInput.click();
+        nativeEdit.click();
+        assert('恢复原页输入及原业务事件', nativeInput.checked && controls.edits.length === 1 && controls.edits[0].id === 6 && controls.edits[0].page === 3);
+        controls.prev.click();
+        await settle();
+        assert('关闭后原生上一页仍可交互', controls.page === 2 && ids(element) === '3,4,5' && controls.clicks.length === 3);
+        await initModule();
+        assert('关闭撤销本站许可，下次初始化仍关闭', !fixtureData.enabledContinuousBrowseSites.includes(location.hostname) && !browserModule.adapter && !host());
+      });
+      for (const nextMode of ['semantic', 'fusion', 'antd', 'list', 'ol', 'role-list', 'grid']) {
+        await test(nextMode + ' 纯 DOM 契约', async () => {
+          const { adapter, root } = await direct(nextMode);
+          assertClean(root, '1,2,3');
+          const saved = root.innerHTML;
+          const loading = request(adapter);
+          await waitFor(() => controls.busy);
+          await delay(30);
+          assert(nextMode + ' 页码先变时等待内容', controls.page === 2 && ids(element) === '1,2,3' && !loading.settled && root.innerHTML === saved);
+          const second = await loading.promise;
+          assert(nextMode + ' 只点击一次且等到稳定才返回新记录', !second.error && !!second.fragment && !controls.busy
+            && controls.clicks.length === 1 && controls.requests.length === 1 && ids(second.fragment) === '4,5');
+          root.append(second.fragment);
+          const third = await request(adapter).promise;
+          assert(nextMode + ' 最后一页成功', !third.error && !!third.fragment && ids(third.fragment) === '6,7');
+          root.append(third.fragment);
+          assert(nextMode + ' 累积去重、保持原生单页并识别禁用末页', ids(root) === '1,2,3,4,5,6,7'
+            && ids(element) === '6,7' && adapter.loaded === 7 && !adapter.nextUrl && controls.next.disabled && adapter.isCurrent());
+          assertClean(root, '1,2,3,4,5,6,7');
+          adapter.destroy();
+          adapter.destroy();
+          assert(nextMode + ' destroy 幂等且不回第一页', !adapter.isCurrent() && controls.page === 3 && controls.clicks.length === 2);
+        });
+      }
+      await test('分阶段内容稳定后才复制', async () => {
+        const { adapter, root } = await direct('semantic', 'staged');
+        const loading = request(adapter);
+        await waitFor(() => controls.requests[0]?.stage);
+        assert('中间 DOM 已变化，但 busy 时不得返回半页', ids(element) === '3,4' && controls.busy && !loading.settled && adapter.loaded === 3);
+        const outcome = await loading.promise;
+        assert('等到最终内容及 busy 结束', !outcome.error && !!outcome.fragment && !controls.busy && ids(outcome.fragment) === '4,5');
+        root.append(outcome.fragment);
+        assert('不丢失分阶段追加的记录', ids(root) === '1,2,3,4,5');
+      });
+      for (const behavior of ['duplicate', 'noop', 'fail']) {
+        await test(behavior + ' 不伪造成功且可提前取消', async () => {
+          const { adapter, root } = await direct('semantic', behavior);
+          const before = root.innerHTML;
+          const loading = request(adapter, 500);
+          await delay(40);
+          assert(behavior + ' 不提前返回旧内容', !loading.settled && adapter.loaded === 3);
+          if (behavior === 'noop') loading.controller.abort(); // Never wait for the production 15s deadline.
+          const outcome = await loading.promise;
+          assert(behavior + ' 明确失败而不是返回旧页', !!outcome.error && !outcome.fragment && adapter.loaded === 3 && root.innerHTML === before);
+          if (behavior === 'noop') assert('AbortController 立即结束 no-op 等待', outcome.error.name === 'AbortError');
+          await settle();
+          assert(behavior + ' 仅一次点击且无自动重试或回滚点击', controls.clicks.length === 1 && controls.requests.length === (behavior === 'noop' ? 0 : 1)
+            && ids(element) === '1,2,3' && controls.page === (behavior === 'noop' ? 1 : 2));
+        });
+      }
+      for (const change of ['filter', 'content', 'structure', 'pager']) {
+        await test('外部变化失效：' + change, async () => {
+          const { adapter, root } = await direct('semantic');
+          const before = root.innerHTML;
+          if (change === 'filter') {
+            query.value = '新筛选';
+            query.dispatchEvent(new Event('input', { bubbles: true }));
+            query.dispatchEvent(new Event('change', { bubbles: true }));
+            apply.click();
+          } else if (change === 'content') element.querySelector('a').textContent = '原内容已更新';
+          else if (change === 'structure') element.replaceWith(element.cloneNode(true));
+          else pager.replaceWith(pager.cloneNode(true));
+          await waitFor(() => !adapter.isCurrent(), change + ' 未使旧会话失效');
+          adapter.destroy();
+          await settle();
+          assert(change + ' 清理不覆盖外部变化，不追加旧内容', !adapter.isCurrent() && root.innerHTML === before && controls.clicks.length === 0);
+          if (change === 'filter') assert('筛选保留新原生内容', ids(element) === '101,102,103' && element.textContent.includes('新筛选'));
+          if (change === 'content') assert('原内容修改不会被旧副本覆盖', element.textContent.includes('原内容已更新'));
+          if (change === 'structure') assert('保留替换后的新列表', !element.isConnected && !!scope.querySelector('table'));
+          if (change === 'pager') assert('保留替换后的新分页器', !pager.isConnected && !!scope.querySelector('nav'));
+        });
+      }
+      for (const cancel of ['stop', 'filter']) {
+        await test('慢请求中' + cancel + ' 无迟到追加', async () => {
+          await prepare();
+          await authorize();
+          silence();
+          const adapter = browserModule.adapter;
+          assert('慢请求前有活动会话', !!adapter);
+          const oldCopies = copies(), before = copyIds(oldCopies);
+          controls.behavior = 'slow';
+          const loading = browserModule._load();
+          await waitFor(() => controls.busy);
+          if (cancel === 'stop') await browserModule.command('stop');
+          else {
+            query.value = '新筛选';
+            query.dispatchEvent(new Event('input', { bubbles: true }));
+            query.dispatchEvent(new Event('change', { bubbles: true }));
+            apply.click();
+            await waitFor(() => !adapter.isCurrent(), '在途筛选未中止会话');
+            await browserModule.command('status'); // Existing context checking, no private adapter hooks.
+          }
+          assert(cancel + ' 在原请求未完成时终止旧会话', controls.pending > 0 && !adapter.isCurrent() && browserModule.adapter !== adapter);
+          await bounded(loading);
+          await settle();
+          await delay(400);
+          silence();
+          assert(cancel + ' 晚到响应不计数或追加到旧副本', adapter.loaded === 3 && copyIds(oldCopies) === before && controls.clicks.length === 1);
+          if (cancel === 'stop') assert('关闭后原生晚到第二页保持可用，不重启', controls.page === 2 && ids(element) === '3,4,5'
+            && !host() && !browserModule.adapter && getComputedStyle(element).display !== 'none' && getComputedStyle(pager).display !== 'none');
+          else assert('筛选后只显示新查询，旧响应不覆盖或混入', ids(element) === '101,102,103'
+            && (!host() || copyIds(copies()) === '101,102,103') && controls.requests[0].applied === false);
+        });
+      }
+      for (const shape of ['two-pagers', 'two-lists', 'two-pairs', 'two-next', 'no-current', 'orphan', 'no-list', 'submit', 'implicit-submit']) {
+        await test('拒绝歧义或危险分页：' + shape, async () => {
+          await prepare('semantic');
+          if (shape === 'two-pagers') scope.append(pager.cloneNode(true));
+          if (shape === 'two-lists') scope.prepend(element.cloneNode(true));
+          if (shape === 'two-pairs') {
+            const pair = document.createElement('section');
+            pair.append(element.cloneNode(true), pager.cloneNode(true));
+            scope.after(pair);
+            // Remove this extra scope even when the rejection assertion fails.
+            pair.dataset.clickTemporary = 'true';
+          }
+          if (shape === 'two-next') pager.append(next.cloneNode(true));
+          if (shape === 'no-current') current.remove();
+          if (shape === 'orphan') { scope.append(next); pager.remove(); }
+          if (shape === 'no-list') element.remove();
+          if (shape.endsWith('submit')) {
+            const form = document.createElement('form');
+            form.addEventListener('submit', event => { event.preventDefault(); controls.submits++; });
+            pager.before(form);
+            form.append(pager);
+            if (shape === 'submit') next.type = 'submit';
+            else next.removeAttribute('type');
+          }
+          try {
+            const adapter = ContinuousBrowseClickAdapter.detect();
+            if (adapter) adapters.add(adapter);
+            if (shape.endsWith('submit')) {
+              if (adapter && adapter.start() !== false) await request(adapter, 120).promise;
+              assert(shape + ' 不点击表单提交按钮', controls.clicks.length === 0 && controls.requests.length === 0 && controls.submits === 0);
+            } else assert(shape + ' 不检测', !adapter);
+            assert(shape + ' detect 无点击副作用', controls.clicks.length === 0 && controls.requests.length === 0);
+          } finally { document.querySelectorAll('[data-click-temporary]').forEach(node => node.remove()); }
+        });
+      }
+      if (scroll) await test('真实滚动触发与暂停', async () => {
+        await prepare();
+        await authorize();
+        silence();
+        assert('滚动测试已自动开启', !!browserModule.adapter && !!copies());
+        const sentinel = copies().querySelector('.sentinel');
+        await browserModule.command('pause');
+        sentinel.scrollIntoView({ block: 'end', behavior: 'instant' });
+        await delay(150);
+        assert('暂停后滚动也无请求', controls.clicks.length === 0);
+        window.scrollTo(0, 0);
+        await browserModule.command('resume');
+        await delay(100);
+        assert('观察点未进入视口不点击', controls.clicks.length === 0);
+        sentinel.scrollIntoView({ block: 'end', behavior: 'instant' });
+        await waitFor(() => controls.clicks.length > 0, '真实 IntersectionObserver 未触发');
+        await browserModule.command('pause');
+        await waitFor(() => browserModule.pages === 2, '滚动请求未追加');
+        await delay(150);
+        assert('真实 scroll 只触发一页，暂停阻止后续请求', controls.clicks.length === 1 && controls.requests.length === 1
+          && browserModule.state === 'paused' && copyIds(copies()) === '1,2,3,4,5');
+      });
+      await interactionTest('同格双按钮与当前页无额外分页', async () => {
+        const calls = await prepareInteraction();
+        const nativeButtons = element.tBodies[0].rows[0].querySelectorAll('button');
+        assert('每行同一格两个原按钮', nativeButtons.length === 2 && nativeButtons[0].parentElement === nativeButtons[1].parentElement);
+        const saved = savedCopies();
+        assertClean(saved.sections[0].node, '1,2,3');
+        await finishInteraction(clickCopy(calls, 1));
+        assertEdit(1, 1);
+        assert('当前页第二按钮不分页且保持暂停，原表可见', controls.requests.length === 0 && controls.clicks.length === 0
+          && browserModule.state === 'paused' && getComputedStyle(element).display !== 'none');
+        assertPreserved(saved);
+        await finishInteraction(clickCopy(calls, 1, '原生编辑'));
+        assertEdit(1, 1, 'edit', 2);
+        assert('两个副本分别对应两个原按钮，不借用整格首按钮', controls.edits.map(edit => edit.action).join() === 'inspect,edit'
+          && controls.requests.length === 0 && browserModule.state === 'paused');
+        assertPreserved(saved);
+      });
+      for (const reuseRows of [false, true]) {
+        await interactionTest((reuseRows ? '复用行及按钮 / 数字分页' : '卸载旧 DOM / prev-next') + ' 回页后继续无重复', async () => {
+          // A fourth page exists only in this opt-in case, so resuming from loaded page3 must append real new rows.
+          const calls = await prepareInteraction({ reuseRows, numbered: reuseRows, maxPage: 4 });
+          const original = element, oldRow = element.tBodies[0].rows[0], oldButton = oldRow.querySelectorAll('button')[1];
+          await loadThrough(3);
+          const saved = savedCopies();
+          assert('已加载三页七条且原站在 page3', saved.ids === '1,2,3,4,5,6,7' && saved.loaded === 7
+            && saved.pages === 3 && saved.highest === 3 && controls.page === 3 && ids(element) === '6,7');
+          if (reuseRows) assert('相同位置行及按钮被复用，data-row-key 从1变6', element.tBodies[0].rows[0] === oldRow
+            && oldRow.dataset.rowKey === '6' && oldRow.querySelectorAll('button')[1] === oldButton);
+          else {
+            assert('原 table 保留而旧行和旧按钮已卸载', element === original && !oldRow.isConnected && !oldButton.isConnected);
+            oldButton.click();
+            assert('脱离原 table 的旧按钮无法触发委托业务', controls.edits.length === 0);
+          }
+          const returning = clickCopy(calls, 1);
+          await waitFor(() => controls.busy);
+          const concurrent = clickCopy(calls, 2);
+          await bounded(concurrent.promise);
+          await browserModule.command('resume');
+          await browserModule._load();
+          assert('在途交互禁止并发点击及恢复加载', !concurrent.started && browserModule.state === 'paused'
+            && controls.edits.length === 0 && controls.requests.length === 3);
+          await finishInteraction(returning);
+          assertEdit(1, 1);
+          assert('旧副本恢复原 id1 而非位置上的新记录6，原表可见', controls.page === 1 && ids(element) === '1,2,3'
+            && !controls.edits.some(edit => edit.id === 6) && saved.adapter.nativePage === 1
+            && browserModule.state === 'paused' && getComputedStyle(element).display !== 'none');
+          assert('通过原分页按钮回页', controls.requests.map(request => request.page).join() === (reuseRows ? '2,3,1' : '2,3,2,1'));
+          assertPreserved(saved);
+          await browserModule._load();
+          assert('交互后暂停不偷偷追加', unchangedCopies(saved) && browserModule.pages === 3 && controls.page === 1);
+          await browserModule.command('resume');
+          silence();
+          assert('继续时先隐藏原表及分页器', getComputedStyle(element).display === 'none' && getComputedStyle(pager).display === 'none');
+          await loadThrough(4);
+          assert('先回最高已加载页再追加第四页，旧页不重复', controls.requests.map(request => request.page).join()
+            === (reuseRows ? '2,3,1,3,4' : '2,3,2,1,2,3,4'));
+          assert('继续后仍为原会话、九条四页且末页完成', browserModule.adapter === saved.adapter && host() === saved.host
+            && browserModule._session === saved.session && browserModule.pages === 4 && saved.adapter.page === 4
+            && saved.adapter.nativePage === 4 && saved.adapter.loaded === 9 && browserModule.state === 'done'
+            && copyIds(copies()) === '1,2,3,4,5,6,7,8,9' && copies().querySelectorAll('section').length === 4
+            && saved.sections.every(({ node, html }, index) => copies().querySelectorAll('section')[index] === node && node.innerHTML === html)
+            && controls.edits.length === 1);
+          assert('继续加载完成后原表保持隐藏', getComputedStyle(element).display === 'none');
+          for (const section of copies().querySelectorAll('section')) assertClean(section, ids(section));
+        });
+      }
+      await interactionTest('加载中点击只提示等待，不排队迟到执行', async () => {
+        const calls = await prepareInteraction();
+        controls.delay = 250;
+        const loading = browserModule._load();
+        await waitFor(() => controls.busy);
+        const blocked = clickCopy(calls, 1);
+        await bounded(blocked.promise);
+        assert('正在加载时不执行交互并提示完成后再点', !blocked.started && controls.edits.length === 0
+          && browserModule.state === 'paused' && /等待|完成|再次|重试/.test(browserModule.status().message));
+        await bounded(loading);
+        silence();
+        await settle();
+        assert('加载完成保留两页并暂停，不迟到触发业务', browserModule.pages === 2 && browserModule.adapter.loaded === 5
+          && copyIds(copies()) === '1,2,3,4,5' && browserModule.state === 'paused' && controls.edits.length === 0
+          && controls.requests.map(request => request.page).join() === '2');
+        const saved = savedCopies();
+        await finishInteraction(clickCopy(calls, 1));
+        assertEdit(1, 1);
+        assertPreserved(saved);
+      });
+      for (const cancel of ['abort', 'filter']) {
+        await interactionTest('load 在 await navigate 返回后 ' + cancel + ' 不发下一页', async () => {
+          await prepareInteraction();
+          const saved = savedCopies(), adapter = saved.adapter;
+          const navigate = adapter.navigate, turnPage = adapter.turnPage;
+          let navigated = false, turns = 0;
+          // Keep real navigate/turnPage; inject only at the await boundary, before load resumes.
+          adapter.navigate = async function (...args) {
+            await navigate.apply(this, args);
+            navigated = this.isCurrent() && !this.pending && this.nativePage === this.page && !controls.next.disabled;
+            queueMicrotask(() => {
+              if (cancel === 'abort') loading.controller.abort();
+              else {
+                query.value = 'navigate 后新筛选';
+                query.dispatchEvent(new Event('input', { bubbles: true }));
+                query.dispatchEvent(new Event('change', { bubbles: true }));
+              }
+            });
+          };
+          adapter.turnPage = function (...args) { turns++; return turnPage.apply(this, args); };
+          const loading = request(adapter);
+          try {
+            const outcome = await loading.promise;
+            assert(cancel + ' 在真实 navigate 完成且下一页可用时拒绝 load', navigated && !!outcome.error && !outcome.fragment);
+            assert(cancel + ' load 自身重校验，不依赖 turnPage preflight 阻止点击', turns === 0
+              && controls.clicks.length === 0 && controls.requests.length === 0 && controls.edits.length === 0 && controls.page === 1);
+            if (cancel === 'abort') assert('navigate 后取消保留 AbortError', outcome.error.name === 'AbortError' && loading.controller.signal.aborted);
+            else assert('navigate 后筛选使旧 context 失效且保留新输入', !adapter.isCurrent() && query.value === 'navigate 后新筛选');
+            assertPreserved(saved);
+          } finally { adapter.navigate = navigate; adapter.turnPage = turnPage; }
+        });
+      }
+      for (const cancel of ['stop', 'filter']) {
+        await interactionTest('回页在途 ' + cancel + ' 不得迟到执行', async () => {
+          const calls = await prepareInteraction({ numbered: true, maxPage: 4 });
+          await loadThrough(3);
+          const saved = savedCopies();
+          controls.behavior = 'slow';
+          const returning = clickCopy(calls, 1);
+          await waitFor(() => controls.busy && controls.requests.length === 3);
+          const request = controls.requests[2];
+          assert('确实在请求回 page1，原 DOM 尚为 page3', request.page === 1 && !request.completed && ids(element) === '6,7'
+            && returning.started && !returning.finished && controls.edits.length === 0);
+          if (cancel === 'stop') await browserModule.command('stop');
+          else {
+            query.value = '交互中新筛选';
+            query.dispatchEvent(new Event('input', { bubbles: true }));
+            query.dispatchEvent(new Event('change', { bubbles: true }));
+            apply.click();
+            await browserModule.command('status');
+          }
+          assert(cancel + ' 在原响应到达前结束旧会话', controls.pending > 0 && !saved.adapter.isCurrent()
+            && browserModule.adapter !== saved.adapter);
+          await finishInteraction(returning, true);
+          await delay(400); // Include delayed native completion and the module's auto-start debounce.
+          browserModule._checkContext();
+          silence();
+          assert(cancel + ' 迟到响应不触发任何业务、不修改旧副本和计数', controls.edits.length === 0
+            && saved.adapter.loaded === 7 && unchangedCopies(saved) && request.completed && controls.clicks.length === 3);
+          if (cancel === 'stop') assert('关闭取消 signal 且仅恢复原站单页，不自动重启', returning.signal.aborted
+            && controls.page === 1 && ids(element) === '1,2,3' && !host() && !browserModule.adapter
+            && !fixtureData.enabledContinuousBrowseSites.includes(location.hostname)
+            && getComputedStyle(element).display !== 'none' && getComputedStyle(pager).display !== 'none');
+          else assert('新筛选胜出，旧回页响应被丢弃且不混入副本', !request.applied && ids(element) === '101,102,103'
+            && (!host() || copyIds(copies()) === '101,102,103'));
+        });
+      }
+      for (const change of ['disabled', 'aria-disabled', 'pointer-events', 'structure', 'target-signature', 'target-text', 'row-key', 'row-text']) {
+        await interactionTest('回页核对拒绝：' + change, async () => {
+          const calls = await prepareInteraction();
+          await loadThrough(2);
+          const saved = savedCopies();
+          let mutated = false;
+          // Mutate only the freshly returned original row, after its immutable copy was made.
+          controls.mutateRow = (row, { id, page }) => {
+            if (id !== 1 || page !== 1) return;
+            mutated = true;
+            const button = row.querySelectorAll('button')[1];
+            if (change === 'disabled') button.disabled = true;
+            if (change === 'aria-disabled') button.setAttribute('aria-disabled', 'true');
+            if (change === 'pointer-events') button.style.pointerEvents = 'none';
+            if (change === 'structure') {
+              const wrapper = document.createElement('div');
+              button.replaceWith(wrapper);
+              wrapper.append(button);
+            }
+            if (change === 'target-signature') button.dataset.action = 'different-operation';
+            if (change === 'target-text') button.textContent = '操作内容已变';
+            if (change === 'row-key') row.dataset.rowKey = '901';
+            if (change === 'row-text') row.querySelector('p').textContent = '记录正文已变化';
+          };
+          const call = clickCopy(calls, 1);
+          await finishInteraction(call, true);
+          assert(change + ' 真正回页后拒绝，不执行首按钮或变化后的操作', mutated && controls.requests.map(request => request.page).join() === '2,1'
+            && controls.edits.length === 0 && saved.adapter.loaded === 5 && unchangedCopies(saved));
+          if (change === 'pointer-events') assert('恢复可见后仍拒绝 pointer-events:none 的原按钮',
+            /不可点击/.test(call.error.message) && getComputedStyle(element).display !== 'none'
+            && getComputedStyle(element.querySelector('[data-action="inspect"]')).pointerEvents === 'none');
+        });
+      }
+      await interactionTest('child span 不变而父按钮 data-action 改变也拒绝', async () => {
+        const nest = row => {
+          const button = row.querySelector('[data-action="inspect"]');
+          const child = document.createElement('span');
+          child.textContent = button.textContent;
+          button.replaceChildren(child);
+        };
+        const calls = await prepareInteraction({ mutateRow: nest });
+        const original = element.querySelector('[data-row-key="1"]');
+        const rowText = original.textContent, leafHTML = original.querySelector('button[data-action="inspect"] span').outerHTML;
+        await loadThrough(2);
+        const saved = savedCopies();
+        const copiedButton = copyControl(1), child = copiedButton.querySelector('span');
+        assert('副本保留按钮内 child span 且有独立点击映射', !!child && child.parentElement === copiedButton
+          && saved.adapter.copyTargets.has(child));
+        let returned;
+        controls.mutateRow = (row, context) => {
+          nest(row);
+          if (context.id !== 1 || context.page !== 1) return;
+          row.querySelector('button[data-action="inspect"]').dataset.action = 'different-operation';
+          returned = row;
+        };
+        const before = calls.length;
+        child.click(); // Target the unchanged leaf, not the sanitized parent button span.
+        assert('点击 child span 恰好经过一次真实交互入口', calls.length === before + 1);
+        await finishInteraction(calls.at(-1), true);
+        assert('仅父按钮签名变化，row key/text 与 leaf 均不变', returned?.dataset.rowKey === '1'
+          && returned.textContent === rowText && returned.querySelector('button[data-action="different-operation"] span')?.outerHTML === leafHTML);
+        assert('整条祖先 path 校验拒绝业务，不误用 leaf 或同格首按钮', controls.edits.length === 0
+          && controls.requests.map(request => request.page).join() === '2,1' && controls.clicks.length === 2);
+        assertPreserved(saved);
+      });
+      await interactionTest('旧页真实链接保留 href / _blank，不回页', async () => {
+        const calls = await prepareInteraction();
+        const href = element.querySelector('a').href;
+        await loadThrough(3);
+        const saved = savedCopies();
+        const link = [...copies().querySelectorAll('section a[href]')].find(link => link.href === href);
+        assert('真实链接保留原绝对 href 和新标签 target', !!link && href === location.origin + '/record/1'
+          && link.getAttribute('href') === href && link.target === '_blank');
+        let reached = false, prevented;
+        const preventNavigation = event => {
+          if (!event.composedPath().includes(link)) return;
+          reached = true;
+          prevented = event.defaultPrevented;
+          event.preventDefault(); // Only suppress the browser's new tab; let the real adapter listener run first.
+        };
+        saved.host.addEventListener('click', preventNavigation);
+        try { link.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true, cancelable: true })); }
+        finally { saved.host.removeEventListener('click', preventNavigation); }
+        await delay(50);
+        assert('适配器不拦截链接、不调用交互或原分页', reached && !prevented && calls.length === 0 && controls.edits.length === 0
+          && controls.page === 3 && controls.requests.length === 2 && controls.clicks.length === 2 && browserModule.state === 'done');
+        assertPreserved(saved);
+      });
+      await interactionTest('Fusion 原生 inline 展开可见，保留累计副本并可继续', async () => {
+        const calls = await prepareInteraction({ mode: 'fusion' });
+        await loadThrough(2);
+        const saved = savedCopies(), original = element;
+        const row = element.querySelector('[data-row-key="4"]'), rowText = row.textContent;
+        let expanded;
+        // Simulate native Fusion expansion as a sibling, without rewriting the business row.
+        element.addEventListener('click', event => {
+          const button = event.target.closest('button[data-action="inspect"]');
+          if (button?.closest('[data-row-key]') !== row) return;
+          expanded = document.createElement('tr');
+          expanded.className = 'next-table-expanded-row';
+          const cell = expanded.insertCell();
+          cell.colSpan = row.cells.length;
+          cell.textContent = '条目 4 的原生展开详情';
+          row.after(expanded);
+        });
+        await finishInteraction(clickCopy(calls, 4));
+        assertEdit(4, 2);
+        browserModule._checkContext();
+        await delay(650); // Let mutation observers and periodic context checks see the expanded row.
+        await browserModule._load();
+        assert('inline 详情确实可见而非只存在于隐藏原表', expanded?.isConnected && expanded.previousElementSibling === row
+          && expanded.textContent === '条目 4 的原生展开详情' && expanded.getBoundingClientRect().height > 0
+          && getComputedStyle(expanded).display !== 'none' && getComputedStyle(expanded).visibility === 'visible'
+          && getComputedStyle(element).display !== 'none');
+        assert('展开不改变原表身份、业务行原文本或分页计数', element === original && row.isConnected
+          && row.dataset.rowKey === '4' && row.textContent === rowText && ContinuousBrowseClickAdapter.rows(element).length === 3
+          && browserModule.state === 'paused' && controls.page === 2 && controls.requests.length === 1
+          && controls.clicks.length === 1 && controls.edits.length === 1);
+        assertPreserved(saved);
+        await browserModule.command('resume');
+        silence();
+        assert('继续时隐藏原表及 inline 详情', getComputedStyle(element).display === 'none' && expanded.getClientRects().length === 0);
+        await loadThrough(3);
+        assert('继续仅追加下一页，原累计副本节点及 snapshot 不变', browserModule.adapter === saved.adapter && host() === saved.host
+          && browserModule._session === saved.session && browserModule.pages === 3 && saved.adapter.loaded === 7
+          && saved.adapter.page === 3 && browserModule.state === 'done' && copyIds(copies()) === '1,2,3,4,5,6,7'
+          && copies().querySelectorAll('section').length === 3
+          && saved.sections.every(({ node, html }, index) => copies().querySelectorAll('section')[index] === node && node.innerHTML === html)
+          && controls.requests.map(request => request.page).join() === '2,3' && controls.clicks.length === 2 && controls.edits.length === 1
+          && element === original && getComputedStyle(element).display === 'none');
+      });
+      await interactionTest('hash 详情抽屉保留累计内容，当前页无额外分页', async () => {
+        const calls = await prepareInteraction({ hashDetails: true });
+        await loadThrough(2);
+        const saved = savedCopies(), beforeUrl = location.href;
+        await finishInteraction(clickCopy(calls, 4));
+        assertEdit(4, 2);
+        assert('原生详情打开并改变 hash，原表保持可见', !drawer.hidden && location.hash === '#click-detail-4'
+          && getComputedStyle(element).display !== 'none' && browserModule.state === 'paused');
+        browserModule._checkContext();
+        assertPreserved(saved);
+        await delay(650); // Exercise context polling and hashchange, not just the synchronous click stack.
+        browserModule._checkContext();
+        await browserModule._load();
+        assertPreserved(saved);
+        assert('抽屉期间保持暂停且没有额外原分页请求', browserModule.state === 'paused' && controls.page === 2
+          && controls.requests.length === 1 && controls.clicks.length === 1 && controls.edits.length === 1);
+        document.querySelector('#click-close-detail').click();
+        await delay(0);
+        browserModule._checkContext();
+        assertPreserved(saved);
+        assert('关闭抽屉恢复 URL，不重启、不丢前页且仍暂停', drawer.hidden && location.href === beforeUrl
+          && browserModule.state === 'paused' && saved.adapter.isCurrent() && controls.requests.length === 1);
+      });
+      assert('所有模式均不猜测 URL、不调用 fetch/XHR API', networkCalls === 0);
+    } catch (error) { checks.push({ error: error.message }); }
+    finally {
+      window.fetch = originalFetch;
+      XMLHttpRequest.prototype.open = originalOpen;
+      for (const controller of controllers) controller.abort();
+      for (const adapter of adapters) adapter.destroy();
+      browserModule.destroy();
+      window.fixtureData = {};
+      await settle();
+      reset(options);
+      window.scrollTo(0, 0);
+      await initModule();
+      running = false;
+      runButton.disabled = false;
+      window.clickRegressionResults = window.regressionResults = checks;
+      result.textContent = checks.filter(check => check.pass).length + ' 项通过 / '
+        + checks.filter(check => check.pass === false || check.error).length + ' 项失败；详见 clickRegressionResults';
+    }
+    return checks;
+  };
+  window.runClickInteractionRegression = () => window.runClickRegression({ interactionOnly: true });
+  runButton.onclick = () => window.runClickRegression({ scroll: true });
+}
+
+const clickFixture = url => {
+  const modes = ['semantic', 'fusion', 'antd', 'list', 'ol', 'role-list', 'grid'];
+  const behaviors = ['normal', 'duplicate', 'noop', 'slow', 'fail', 'staged'];
+  const options = {
+    mode: modes.includes(url.searchParams.get('mode')) ? url.searchParams.get('mode') : 'semantic',
+    behavior: behaviors.includes(url.searchParams.get('behavior')) ? url.searchParams.get('behavior') : 'normal',
+    delay: Math.max(50, Math.min(1000, Number(url.searchParams.get('delay')) || 100)),
+  };
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><title>通用按钮分页回归</title>
+<style>body{font:14px system-ui;margin:24px}header{position:sticky;top:0;background:white;padding:12px;z-index:2}button{padding:8px;margin:4px}table{width:100%;border-collapse:collapse}td,th{padding:16px;border:1px solid #ddd}#click-spacer{height:160vh;min-height:1200px}#click-scope>ul:not(.ant-pagination)>li,#click-scope>ol>li,[role=listitem],[role=row]{padding:24px;border-bottom:1px solid #ddd}.pagination,.next-pagination,.ant-pagination{align-items:center;gap:12px;list-style:none}output{display:block}</style></head>
+<body><header><h1>通用按钮分页（只读）回归：${options.mode}</h1><p>默认关闭；点击显式许可后自动识别。仅原生异步点击，无接口或框架契约。</p>
+<button id="click-start" type="button">显式许可并开启</button><button id="click-pause" type="button">暂停</button><button id="click-resume" type="button">继续</button><button id="click-stop" type="button">关闭并恢复原分页</button><button id="click-test" type="button">运行回归（含滚动）</button>
+<label>筛选 <input id="click-query"></label><button id="click-filter" type="button">应用筛选</button><output id="click-result"></output></header>
+<div id="click-spacer" aria-hidden="true"></div><main><section id="click-scope"></section></main>
+<aside id="click-detail" role="dialog" aria-label="模拟详情" hidden style="position:fixed;inset:20% 0 0 60%;background:white;border:1px solid;z-index:3"><h2>本地模拟详情</h2><button id="click-close-detail" type="button">关闭详情</button></aside>
+${scripts.map(src => `<script src="${src}"></script>`).join('')}<script>(${setupClickFixture.toString()})(${JSON.stringify(options)})</script></body></html>`;
+};
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://127.0.0.1:8765');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Cache-Control', 'no-store');
+  if (url.pathname === '/click') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(clickFixture(url));
+    return;
+  }
   if (url.pathname === '/table') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(tableFixture(url));

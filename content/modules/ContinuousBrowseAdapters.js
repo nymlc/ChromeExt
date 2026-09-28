@@ -1,4 +1,18 @@
 class ContinuousBrowseHtmlAdapter {
+  static hideElement(element) {
+    if (!element || element.tagName === 'LINK') return null;
+    const entry = [element, element.style.getPropertyValue('display'), element.style.getPropertyPriority('display')];
+    element.style.setProperty('display', 'none', 'important');
+    return entry;
+  }
+
+  static restoreElement(entry) {
+    if (!entry) return;
+    const [element, display, priority] = entry;
+    if (display) element.style.setProperty('display', display, priority);
+    else element.style.removeProperty('display');
+  }
+
   static safeUrl(value, base) {
     try {
       const url = new URL(value, base);
@@ -105,19 +119,29 @@ class ContinuousBrowseHtmlAdapter {
     return url || text || images ? `${url?.href || ''}\n${text}\n${images}` : `${base}\n${item.outerHTML}`;
   }
 
-  static sanitize(node, base) {
+  static sanitize(node, base, presentation = false, mapElement) {
     if (node.nodeType === Node.TEXT_NODE) return document.createTextNode(node.textContent);
     if (node.nodeType !== Node.ELEMENT_NODE) return document.createDocumentFragment();
-    if (['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'LINK', 'META', 'BASE', 'FORM', 'INPUT', 'BUTTON', 'TEXTAREA', 'SELECT', 'SVG', 'MATH', 'TEMPLATE', 'NOSCRIPT'].includes(node.tagName)) {
+    const textButton = presentation && node.tagName === 'BUTTON';
+    if (!textButton && ['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'LINK', 'META', 'BASE', 'FORM', 'INPUT', 'BUTTON', 'TEXTAREA', 'SELECT', 'SVG', 'MATH', 'TEMPLATE', 'NOSCRIPT'].includes(node.tagName)) {
       return document.createDocumentFragment();
     }
     const allowed = new Set(['A', 'IMG', 'P', 'DIV', 'SPAN', 'ARTICLE', 'SECTION', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'UL', 'OL', 'LI', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD', 'PRE', 'CODE', 'BLOCKQUOTE', 'STRONG', 'B', 'EM', 'I', 'S', 'DEL', 'SMALL', 'SUP', 'SUB', 'BR', 'HR', 'FIGURE', 'FIGCAPTION', 'DL', 'DT', 'DD', 'TIME']);
-    if (!allowed.has(node.tagName)) {
+    if (!allowed.has(node.tagName) && !textButton) {
       const fragment = document.createDocumentFragment();
-      for (const child of node.childNodes) fragment.appendChild(this.sanitize(child, base));
+      for (const child of node.childNodes) fragment.appendChild(this.sanitize(child, base, presentation, mapElement));
       return fragment;
     }
-    const clean = document.createElement(node.localName);
+    const clean = document.createElement(textButton ? 'span' : node.localName);
+    if (presentation) {
+      const style = getComputedStyle(node);
+      for (const property of ['display', 'box-sizing', 'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height',
+        'padding', 'margin', 'border', 'border-radius', 'color', 'background-color', 'font-family', 'font-size', 'font-weight',
+        'font-style', 'line-height', 'text-align', 'text-decoration-line', 'text-overflow', 'white-space', 'overflow',
+        'overflow-wrap', 'word-break', 'vertical-align', 'flex', 'flex-direction', 'flex-wrap', 'align-items', 'justify-content', 'gap', 'object-fit']) {
+        clean.style.setProperty(property, style.getPropertyValue(property));
+      }
+    }
     if (node.tagName === 'A') {
       const url = this.safeUrl(node.getAttribute('href'), base);
       if (url && node.hasAttribute('href')) {
@@ -133,7 +157,8 @@ class ContinuousBrowseHtmlAdapter {
       clean.alt = node.getAttribute('alt') || '';
       clean.loading = 'lazy';
     }
-    for (const child of node.childNodes) clean.appendChild(this.sanitize(child, base));
+    for (const child of node.childNodes) clean.appendChild(this.sanitize(child, base, presentation, mapElement));
+    mapElement?.(node, clean);
     return clean;
   }
 
@@ -187,6 +212,19 @@ class ContinuousBrowseHtmlAdapter {
     this.loaded += added;
     this.page++;
     return fragment;
+  }
+
+  hide() {
+    this.hiddenEntry = ContinuousBrowseHtmlAdapter.hideElement(this.pager);
+  }
+
+  restore() {
+    ContinuousBrowseHtmlAdapter.restoreElement(this.hiddenEntry);
+    this.hiddenEntry = null;
+  }
+
+  destroy() {
+    this.restore();
   }
 }
 
@@ -320,7 +358,17 @@ class ContinuousBrowseTableAdapter {
     return null;
   }
 
+  hide() {
+    this.hiddenEntry = ContinuousBrowseHtmlAdapter.hideElement(this.pager);
+  }
+
+  restore() {
+    ContinuousBrowseHtmlAdapter.restoreElement(this.hiddenEntry);
+    this.hiddenEntry = null;
+  }
+
   destroy() {
+    this.restore();
     if (!this.started) return;
     this.started = false;
     ContinuousBrowseTableAdapter.send(this.element, 'stop');
@@ -424,5 +472,516 @@ class ContinuousBrowseYApiAdapter {
     this.total = data.count;
     this.nextUrl = data.list.length && this.page < data.total ? true : null;
     return added ? table : null;
+  }
+
+  hide() {
+    this.hiddenEntry = ContinuousBrowseHtmlAdapter.hideElement(this.element);
+  }
+
+  restore() {
+    ContinuousBrowseHtmlAdapter.restoreElement(this.hiddenEntry);
+    this.hiddenEntry = null;
+  }
+
+  destroy() {
+    this.restore();
+  }
+}
+
+class ContinuousBrowseClickAdapter {
+  static pagerSelector = '.pagination, .pager, .paging, .pages, .next-pagination, .ant-pagination, .el-pagination, nav[aria-label], [role="navigation"][aria-label]';
+  static currentSelector = '[aria-current="page"], .next-current, .ant-pagination-item-active, .el-pager .is-active, .active, .current';
+
+  static visible(element) {
+    return element.isConnected && element.getClientRects().length > 0
+      && !['hidden', 'collapse'].includes(getComputedStyle(element).visibility);
+  }
+
+  static currentPage(pager) {
+    const values = new Set(Array.from(pager.querySelectorAll(this.currentSelector))
+      .map(el => el.textContent.trim()).filter(text => /^\d+$/.test(text)).map(Number));
+    const page = values.size === 1 ? [...values][0] : null;
+    return Number.isSafeInteger(page) && page > 0 ? page : null;
+  }
+
+  static nextButton(pager) {
+    const candidates = Array.from(pager.querySelectorAll('button, a, [role="button"], .ant-pagination-next')).filter(el => {
+      const label = el.getAttribute('aria-label') || el.getAttribute('title') || el.textContent.trim();
+      return /^(下一页|下页|后一页|next(?:\s+page)?)(?:$|[\s，,›»>→])/i.test(label)
+        || el.matches('.next-next, .ant-pagination-next, .btn-next, [rel~="next"]');
+    });
+    const buttons = [...new Set(candidates.map(el => el.matches('button, a, [role="button"]') ? el : el.querySelector('button, a, [role="button"]')))].filter(Boolean);
+    if (buttons.length !== 1) return null;
+    const button = buttons[0];
+    if (button instanceof HTMLButtonElement && button.type === 'submit' && button.form) return null;
+    if (button.tagName === 'A' && button.hasAttribute('href')) {
+      const href = button.getAttribute('href');
+      if (href && href !== '#' && href !== location.href) return null;
+    }
+    return button;
+  }
+
+  static disabled(button) {
+    return !button || button.matches(':disabled, [disabled]')
+      || !!button.closest('[aria-disabled="true"], .disabled, .is-disabled, .ant-pagination-disabled');
+  }
+
+  static pageButton(pager, target, current) {
+    const safe = button => {
+      if (!(button instanceof HTMLElement) || this.disabled(button)) return false;
+      if (button instanceof HTMLButtonElement && button.type === 'submit' && button.form) return false;
+      return button.tagName !== 'A' || !button.getAttribute('href')
+        || ['#', location.href].includes(button.getAttribute('href'));
+    };
+    const numbered = Array.from(pager.querySelectorAll('button, a, [role="button"], .ant-pagination-item, .el-pager li'))
+      .filter(button => button.textContent.trim() === String(target) && safe(button));
+    const outer = numbered.filter(button => !numbered.some(other => other !== button && other.contains(button)));
+    if (outer.length === 1) return { button: outer[0], page: target };
+    if (target > current) {
+      const button = this.nextButton(pager);
+      return safe(button) ? { button, page: current + 1 } : null;
+    }
+    const previous = Array.from(pager.querySelectorAll('button, a, [role="button"], .ant-pagination-prev')).filter(button => {
+      const label = button.getAttribute('aria-label') || button.getAttribute('title') || button.textContent.trim();
+      return /^(上一页|上页|前一页|previous(?:\s+page)?|prev)(?:$|[\s，,‹«<←])/i.test(label)
+        || button.matches('.next-prev, .ant-pagination-prev, .btn-prev, [rel~="prev"]');
+    });
+    const buttons = [...new Set(previous.map(button => button.matches('button, a, [role="button"]')
+      ? button : button.querySelector('button, a, [role="button"]')))].filter(safe);
+    return buttons.length === 1 ? { button: buttons[0], page: current - 1 } : null;
+  }
+
+  static rows(element) {
+    if (element.matches('table, .next-table, .ant-table, .el-table, [role="table"], [role="grid"]')) {
+      return Array.from(element.querySelectorAll('tbody > tr, [role="row"]')).filter(row =>
+        row.querySelector('td, [role="cell"], [role="gridcell"]') && !row.closest('thead')
+        && !row.matches('[aria-hidden="true"], .next-table-expanded-row, .ant-table-expanded-row'));
+    }
+    return Array.from(element.children).filter(el => !['SCRIPT', 'STYLE', 'TEMPLATE'].includes(el.tagName));
+  }
+
+  static detect() {
+    const visible = element => this.visible(element);
+    if (Array.from(document.querySelectorAll('[role="dialog"], [aria-modal="true"], .el-dialog, .el-drawer')).some(visible)) return null;
+    const allPagers = Array.from(document.querySelectorAll(this.pagerSelector)).filter(visible);
+    const pagers = allPagers.filter(pager => !allPagers.some(other => other !== pager && pager.contains(other)));
+    if (pagers.length !== 1) return null;
+    const pager = pagers[0];
+    const page = this.currentPage(pager);
+    const button = this.nextButton(pager);
+    if (!page || !button) return null;
+    const elements = [...new Set(Array.from(document.querySelectorAll('table, [role="table"], [role="grid"], ul, ol, [role="list"], .list, .results, .items'))
+      .map(el => el.closest('.next-table, .ant-table, .el-table') || el))].filter(el => {
+      if (!visible(el) || el.contains(pager) || pager.contains(el) || el.closest('nav, aside, header, footer, [data-geek-continuous-browse]')) return false;
+      if (el.matches('.el-table-v2, [aria-rowcount]') || el.querySelector('.next-virtual-scroller, .ant-table-tbody-virtual, .el-table-v2')) return false;
+      const rows = this.rows(el);
+      return rows.length >= 2 && rows.every(row => row.tagName === rows[0].tagName)
+        && ['TR', 'LI', 'DIV', 'ARTICLE', 'SECTION'].includes(rows[0].tagName);
+    });
+    const candidates = elements.filter(el => !elements.some(other => el !== other && el.contains(other)));
+    for (let scope = pager.parentElement, depth = 0; scope && depth < 6; scope = scope.parentElement, depth++) {
+      const matches = candidates.filter(el => scope.contains(el));
+      if (!matches.length) continue;
+      if (matches.length !== 1 || !(matches[0].compareDocumentPosition(pager) & Node.DOCUMENT_POSITION_FOLLOWING)) return null;
+      const adapter = new ContinuousBrowseClickAdapter(matches[0], pager, scope, page);
+      return adapter.busy() ? null : adapter;
+    }
+    return null;
+  }
+
+  constructor(element, pager, scope, page) {
+    this.name = '通用按钮分页（只读）';
+    this.element = scope;
+    this.source = element;
+    this.pager = pager;
+    this.scope = scope;
+    this.mountTarget = scope;
+    this.page = page;
+    this.total = null;
+    this.hideOriginal = false;
+    this.hidePager = false;
+    this.handlesMutations = true;
+    this.hidden = new Map();
+    this.sourceSelector = ['.next-table', '.ant-table', '.el-table'].find(selector => element.matches(selector))
+      || (element.id ? `#${CSS.escape(element.id)}` : element.localName + (element.getAttribute('role') ? `[role="${CSS.escape(element.getAttribute('role'))}"]` : ''));
+    this.note = '连续浏览 · 点击副本会暂停加载，自动翻回该记录所在分页并核对后执行；操作期间原表格保持隐藏，事件代理到原行触发，点击继续可恢复连续浏览。详情链接在新标签页打开。';
+    this.url = location.href;
+    this.schema = this.structure();
+    this.signature = this.fingerprint();
+    this.nativePage = page;
+    this.pageSignatures = new Map([[page, this.signature]]);
+    this.seen = new Set(ContinuousBrowseClickAdapter.rows(element).map(row => this.key(row)));
+    this.loaded = this.seen.size;
+    this.copyTargets = new WeakMap();
+    this.host = null;
+    this.nextUrl = !ContinuousBrowseClickAdapter.disabled(ContinuousBrowseClickAdapter.nextButton(pager));
+    const rect = element.getBoundingClientRect();
+    for (let parent = element.parentElement; parent && parent !== document.body; parent = parent.parentElement) {
+      if (/(hidden|clip)/.test(getComputedStyle(parent).overflowY)) {
+        this.viewportHeight = Math.max(120, Math.min(rect.height, parent.getBoundingClientRect().bottom - rect.top));
+        break;
+      }
+    }
+  }
+
+  key(row) {
+    const id = row.getAttribute('data-row-key') || row.getAttribute('data-id') || row.getAttribute('data-key') || row.id;
+    if (id) return `id:${id}`;
+    return ContinuousBrowseHtmlAdapter.prototype.key.call(null, row, this.url);
+  }
+
+  fingerprint() {
+    return JSON.stringify(ContinuousBrowseClickAdapter.rows(this.source).map(row => [this.key(row), row.textContent]));
+  }
+
+  structure() {
+    return JSON.stringify([
+      Array.from(this.source.querySelectorAll('thead th, [role="columnheader"]')).map(el => el.textContent.trim()),
+      ContinuousBrowseClickAdapter.rows(this.source).slice(0, 1).map(row => [row.tagName, row.querySelectorAll('td, [role="cell"], [role="gridcell"]').length]),
+    ]);
+  }
+
+  busy() {
+    return this.scope.matches('[aria-busy="true"]') || !!this.scope.querySelector('[aria-busy="true"]')
+      || Array.from(this.scope.querySelectorAll('.next-loading, .ant-spin-spinning, .el-loading-mask, [role="progressbar"]'))
+        .some(el => getComputedStyle(el).display !== 'none' && getComputedStyle(el).visibility !== 'hidden');
+  }
+
+  refresh() {
+    const sources = Array.from(this.scope.querySelectorAll(this.sourceSelector));
+    const pagers = Array.from(this.scope.querySelectorAll(ContinuousBrowseClickAdapter.pagerSelector));
+    const innerPagers = pagers.filter(pager => !pagers.some(other => other !== pager && pager.contains(other)));
+    if (sources.length !== 1 || innerPagers.length !== 1) return false;
+    this.source = sources[0];
+    this.pager = innerPagers[0];
+    return true;
+  }
+
+  hide() {
+    for (let element of [this.source, this.pager]) {
+      while (element.parentElement !== this.scope && element.parentElement) element = element.parentElement;
+      if (!this.hidden.has(element)) this.hidden.set(element, [element.style.getPropertyValue('visibility'), element.style.getPropertyPriority('visibility')]);
+      if (element.style.getPropertyValue('visibility') !== 'hidden' || element.style.getPropertyPriority('visibility') !== 'important') {
+        element.style.setProperty('visibility', 'hidden', 'important');
+      }
+    }
+  }
+
+  context() {
+    return !this.invalid && !this.destroyed && location.href === this.url && this.scope.isConnected
+      && !Array.from(document.querySelectorAll('[role="dialog"], [aria-modal="true"]')).some(el => ContinuousBrowseClickAdapter.visible(el));
+  }
+
+  isCurrent() {
+    if (!this.context()) return false;
+    if (this.pending) return true;
+    if (!this.source.isConnected || !this.pager.isConnected) return false;
+    return this.refresh() && !this.busy() && this.structure() === this.schema && this.fingerprint() === this.signature
+      && ContinuousBrowseClickAdapter.currentPage(this.pager) === this.nativePage;
+  }
+
+  contentIntact() {
+    if (this.invalid || this.destroyed || !this.scope.isConnected) return false;
+    if (this.pending) {
+      const before = new URL(this.url);
+      const now = new URL(location.href);
+      return before.origin === now.origin && before.pathname === now.pathname && before.search === now.search;
+    }
+    if (!this.source.isConnected || !this.pager.isConnected) return false;
+    const before = new URL(this.url);
+    const now = new URL(location.href);
+    if (before.origin !== now.origin || before.pathname !== now.pathname || before.search !== now.search) return false;
+    return this.refresh() && this.structure() === this.schema && this.fingerprint() === this.signature
+      && ContinuousBrowseClickAdapter.currentPage(this.pager) === this.nativePage;
+  }
+
+  start() {
+    if (!this.isCurrent()) return false;
+    const rows = ContinuousBrowseClickAdapter.rows(this.source);
+    if (rows[0]?.matches('tr, [role="row"]')) {
+      const cells = rows[0].querySelectorAll('td, [role="cell"], [role="gridcell"]');
+      this.columnWidths = Array.from(cells, cell => cell.getBoundingClientRect().width);
+    }
+    this.onInteraction = event => {
+      if (this.triggering || event.composedPath().some(el => el instanceof HTMLElement && el.dataset.geekContinuousBrowse)) return;
+      const target = event.target instanceof Element ? event.target : event.target?.parentElement;
+      if (!target) return;
+      if (['input', 'change'].includes(event.type) && target.closest('input, select, textarea, [contenteditable]')) {
+        this.invalid = true;
+        this.pending?.(new Error('原页面筛选或输入已变化，请恢复原分页后重试'));
+        return;
+      }
+      const pager = this.pager;
+      if (pager && (target === pager || pager.contains(target))) {
+        this.invalid = true;
+        this.pending?.(new Error('原页面分页已变化，请恢复原分页后重试'));
+        return;
+      }
+      const button = target.closest('button, [role="button"], a[href]');
+      if (button) {
+        const label = (button.getAttribute('aria-label') || button.getAttribute('title') || button.textContent || '').trim();
+        if (/^(筛选|过滤|搜索|重置|清空|导出|批量|排序|filter|search|reset|export|sort)/i.test(label)) {
+          this.invalid = true;
+          this.pending?.(new Error('原页面筛选或操作已变化，请恢复原分页后重试'));
+          return;
+        }
+      }
+      if (this.source.contains(target) && target.closest('th, [role="columnheader"]')) {
+        this.invalid = true;
+        this.pending?.(new Error('原页面排序已变化，请恢复原分页后重试'));
+        return;
+      }
+    };
+    for (const type of ['click', 'input', 'change']) document.addEventListener(type, this.onInteraction, true);
+    return true;
+  }
+
+  bindHost(host, runInteraction) {
+    this.host = host;
+    this.onCopyClick = event => {
+      const path = event.composedPath();
+      if (path.some(node => node instanceof HTMLAnchorElement && node.getAttribute('href'))) return;
+      const copy = path.find(node => this.copyTargets.has(node));
+      if (!copy) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const descriptor = this.copyTargets.get(copy);
+      const copyRect = copy.getBoundingClientRect();
+      runInteraction(signal => this.activate(descriptor, signal, copyRect));
+    };
+    host.addEventListener('click', this.onCopyClick);
+  }
+
+  initial() {
+    const rows = ContinuousBrowseClickAdapter.rows(this.source);
+    return rows.length ? this.snapshot(rows) : null;
+  }
+
+  targetSignature(element) {
+    return JSON.stringify([element.tagName, element.textContent,
+      ...['role', 'type', 'name', 'aria-label', 'title', 'href', 'data-action'].map(name => element.getAttribute(name))]);
+  }
+
+  async activate(descriptor, signal, copyRect) {
+    signal.throwIfAborted();
+    if (!this.isCurrent() || this.pending) throw new Error('原页面已变化，请恢复原分页后重试');
+    await this.navigate(descriptor.row.page, signal);
+    signal.throwIfAborted();
+    const matches = ContinuousBrowseClickAdapter.rows(this.source).filter(row => this.key(row) === descriptor.row.key);
+    if (!this.isCurrent() || matches.length !== 1 || matches[0].textContent !== descriptor.row.text) {
+      throw new Error('原记录已变化，已取消点击，请恢复原分页后操作');
+    }
+    let target = matches[0];
+    const signatures = [this.targetSignature(target)];
+    for (const index of descriptor.path) {
+      target = target?.children[index];
+      if (target) signatures.push(this.targetSignature(target));
+    }
+    if (!(target instanceof HTMLElement) || JSON.stringify(signatures) !== descriptor.signature
+      || target.closest(':disabled, [disabled], [aria-disabled="true"]')) {
+      throw new Error('原操作已变化或不可用，已取消点击，请恢复原分页后操作');
+    }
+    this.triggering = true;
+    try {
+      if (!target.isConnected || target.closest(':disabled, [disabled]')) {
+        throw new Error('原操作不可用，已取消点击');
+      }
+      // 原表格保持隐藏（visibility:hidden 仍保留布局与有效矩形，浮层可正常锚定），
+      // 用 transform 把原按钮平移到副本行的视口位置，使浮层出现在用户点击处；
+      // transform 不移出文档流，不会引起副本列表偏移。
+      let wrapper = this.source;
+      while (wrapper.parentElement !== this.scope && wrapper.parentElement) wrapper = wrapper.parentElement;
+      if (copyRect) {
+        const targetRect = target.getBoundingClientRect();
+        const savedTransform = wrapper.style.transform;
+        wrapper.style.transform = `translate(${copyRect.left - targetRect.left}px, ${copyRect.top - targetRect.top}px)`;
+        target.click();
+        await new Promise(resolve => setTimeout(resolve, 350));
+        wrapper.style.transform = savedTransform;
+      } else {
+        target.scrollIntoView({ block: 'center', behavior: 'instant' });
+        target.click();
+        await new Promise(resolve => setTimeout(resolve, 350));
+      }
+      this.hide();
+    } finally {
+      this.triggering = false;
+    }
+  }
+
+  async navigate(page, signal) {
+    while (this.nativePage !== page) {
+      signal.throwIfAborted();
+      if (!this.isCurrent() || this.pending) throw new Error('原页面已变化，已取消点击');
+      const step = ContinuousBrowseClickAdapter.pageButton(this.pager, page, this.nativePage);
+      if (!step) throw new Error('无法恢复目标分页，请关闭连续浏览后在原页操作');
+      await this.turnPage(step.button, step.page, signal);
+    }
+    if (this.pageSignatures.has(page) && this.fingerprint() !== this.pageSignatures.get(page)) {
+      this.invalid = true;
+      throw new Error('目标分页内容已变化，已取消点击，请恢复原分页后重试');
+    }
+  }
+
+  snapshot(rows, page = this.page) {
+    const tableRows = rows[0]?.matches('tr, [role="row"]');
+    const result = document.createElement(tableRows ? 'table' : this.source.matches('ul, ol') ? this.source.localName : 'div');
+    const copyCell = (cell, target, mapElement) => {
+      const content = ContinuousBrowseHtmlAdapter.sanitize(cell, this.url, true, mapElement);
+      mapElement?.(cell, target);
+      target.style.cssText = content.style.cssText;
+      target.style.display = 'table-cell';
+      target.style.boxSizing = 'border-box';
+      target.style.minWidth = '0';
+      target.style.width = '';
+      target.title = cell.textContent.trim();
+      target.append(...content.childNodes);
+    };
+    if (tableRows) {
+      const columns = document.createElement('colgroup');
+      for (const width of this.columnWidths) {
+        const column = document.createElement('col');
+        column.style.width = `${width}px`;
+        columns.appendChild(column);
+      }
+      result.appendChild(columns);
+      result.style.tableLayout = 'fixed';
+      result.style.width = `${this.columnWidths.reduce((sum, width) => sum + width, 0)}px`;
+      const header = result.createTHead().insertRow();
+      for (const cell of this.source.querySelectorAll('thead th, [role="columnheader"]')) {
+        const th = document.createElement('th');
+        copyCell(cell, th);
+        header.appendChild(th);
+      }
+      result.createTBody();
+    }
+    for (const source of rows) {
+      const identity = { key: this.key(source), page, text: source.textContent };
+      const mapElement = (original, copy) => {
+        const path = [];
+        const signatures = [this.targetSignature(original)];
+        for (let node = original; node !== source; node = node.parentElement) {
+          path.unshift(Array.prototype.indexOf.call(node.parentElement.children, node));
+          signatures.unshift(this.targetSignature(node.parentElement));
+        }
+        this.copyTargets.set(copy, { row: identity, path, signature: JSON.stringify(signatures) });
+        if (copy instanceof HTMLAnchorElement && ['', '#'].includes(original.getAttribute('href'))) copy.removeAttribute('href');
+      };
+      if (tableRows) {
+        const row = result.tBodies[0].insertRow();
+        row.dataset.geekRow = identity.key;
+        mapElement(source, row);
+        for (const cell of source.querySelectorAll('td, [role="cell"], [role="gridcell"]')) copyCell(cell, row.insertCell(), mapElement);
+      } else {
+        const copy = ContinuousBrowseHtmlAdapter.sanitize(source, this.url, true, mapElement);
+        if (copy instanceof HTMLElement) copy.dataset.geekRow = identity.key;
+        result.appendChild(copy);
+      }
+    }
+    return result;
+  }
+
+  async load(signal) {
+    signal.throwIfAborted();
+    if (!this.isCurrent() || this.pending) throw new Error('原页面已变化，请恢复原分页后重试');
+    await this.navigate(this.page, signal);
+    signal.throwIfAborted();
+    if (!this.isCurrent() || this.pending) throw new Error('原页面已变化，请恢复原分页后重试');
+    const button = ContinuousBrowseClickAdapter.nextButton(this.pager);
+    if (ContinuousBrowseClickAdapter.disabled(button)) throw new Error('未找到可用的下一页按钮');
+    const expected = this.page + 1;
+    await this.turnPage(button, expected, signal);
+    const keys = new Set(this.seen);
+    const added = ContinuousBrowseClickAdapter.rows(this.source).filter(row => {
+      const key = this.key(row);
+      if (keys.has(key)) return false;
+      keys.add(key);
+      return true;
+    });
+    if (!added.length) {
+      this.invalid = true;
+      throw new Error('下一页没有新内容，已停止重复加载');
+    }
+    const result = this.snapshot(added, expected);
+    this.seen = keys;
+    this.page = expected;
+    this.pageSignatures.set(expected, this.signature);
+    this.loaded += added.length;
+    this.nextUrl = !ContinuousBrowseClickAdapter.disabled(ContinuousBrowseClickAdapter.nextButton(this.pager));
+    return result;
+  }
+
+  async turnPage(button, expected, signal) {
+    signal.throwIfAborted();
+    if (!this.isCurrent() || this.pending || !this.pager.contains(button) || ContinuousBrowseClickAdapter.disabled(button)) {
+      throw new Error('原页面已变化，请恢复原分页后重试');
+    }
+    return new Promise((resolve, reject) => {
+      let stable = '';
+      let stableSince = 0;
+      let timer;
+      let timeout;
+      let observer;
+      let finished = false;
+      const finish = (error, result) => {
+        if (finished) return;
+        finished = true;
+        clearInterval(timer);
+        clearTimeout(timeout);
+        observer?.disconnect();
+        signal.removeEventListener('abort', abort);
+        this.pending = null;
+        if (error) { this.invalid = true; reject(error); }
+        else resolve(result);
+      };
+      const abort = () => finish(new DOMException('已停止等待；原站请求可能仍在完成，请恢复分页后重试', 'AbortError'));
+      const check = () => {
+        if (!this.context()) { finish(new Error('页面状态已变化，连续浏览已停止')); return; }
+        if (this.busy() || !this.refresh()) { stable = ''; return; }
+        this.hide();
+        const page = ContinuousBrowseClickAdapter.currentPage(this.pager);
+        if (page !== this.nativePage && page !== expected && page !== null) { finish(new Error('页码跳转异常，请恢复原分页后重试')); return; }
+        const signature = this.fingerprint();
+        if (page !== expected || signature === this.signature) { stable = ''; return; }
+        if (stable !== signature) { stable = signature; stableSince = Date.now(); return; }
+        if (Date.now() - stableSince < 500) return;
+        const next = ContinuousBrowseClickAdapter.nextButton(this.pager);
+        if (this.structure() !== this.schema || !next) { finish(new Error('下一页结构已变化，请恢复原分页后重试')); return; }
+        this.signature = signature;
+        this.nativePage = expected;
+        finish(null);
+      };
+      this.pending = error => finish(error);
+      signal.addEventListener('abort', abort, { once: true });
+      observer = new MutationObserver(check);
+      observer.observe(this.scope, { childList: true, subtree: true, characterData: true, attributes: true });
+      timer = setInterval(check, 100);
+      timeout = setTimeout(() => finish(new Error('无法确认下一页加载完成，已保留内容；请恢复原分页后重试')), 12000);
+      this.triggering = true;
+      try { button.click(); } catch (_) { finish(new Error('原站翻页失败，请恢复原分页后重试')); }
+      finally { this.triggering = false; }
+    });
+  }
+
+  restore() {
+    for (const [element, style] of this.hidden) {
+      if (style[0]) element.style.setProperty('visibility', style[0], style[1]);
+      else element.style.removeProperty('visibility');
+    }
+    this.hidden.clear();
+  }
+
+  destroy() {
+    this.destroyed = true;
+    this.restore();
+    this.pending?.(new DOMException('已停止连续浏览', 'AbortError'));
+    if (this.onInteraction) {
+      for (const type of ['click', 'input', 'change']) document.removeEventListener(type, this.onInteraction, true);
+    }
+    if (this.host && this.onCopyClick) this.host.removeEventListener('click', this.onCopyClick);
+    this.onCopyClick = null;
+    this.host = null;
+    this.copyTargets = new WeakMap();
+    this.pageSignatures.clear();
   }
 }
